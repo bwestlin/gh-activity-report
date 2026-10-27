@@ -20,22 +20,25 @@ pub fn markdown(report: &Report) -> String {
     writeln!(out, "# GitHub progress for @{}", report.user).unwrap();
     writeln!(
         out,
-        "\n**{}** ({}) — {} pull requests and {} issues moved forward ({} activity signals)",
+        "\n**{}** ({}) — {} pull requests, {}, and {} issues moved forward ({} activity signals)",
         capitalize(&report.period),
         report.dates,
         report.pull_requests.len(),
+        branch_count(report.branches.len()),
         issue_count,
         report.total
     )
     .unwrap();
 
     if report.pull_requests.is_empty()
+        && report.branches.is_empty()
         && report.issues.is_empty()
         && report.other_activity.is_empty()
     {
         writeln!(out, "\nNo GitHub activity found in this timeframe.").unwrap();
     } else {
         write_pull_requests(&mut out, report);
+        write_branches(&mut out, report);
         write_standalone_issues(&mut out, report);
         write_other_activity(&mut out, report);
     }
@@ -44,6 +47,36 @@ pub fn markdown(report: &Report) -> String {
         writeln!(out, "\n> Warning: GitHub's Events API page limit was reached; this report may be incomplete.").unwrap();
     }
     out
+}
+
+fn write_branches(out: &mut String, report: &Report) {
+    if report.branches.is_empty() {
+        return;
+    }
+    writeln!(out, "\n## Branches without pull requests\n").unwrap();
+    for branch in &report.branches {
+        writeln!(
+            out,
+            "### [`{}:{}`]({}) — {}\n",
+            branch.repository,
+            escape_link_text(&branch.branch),
+            branch.html_url,
+            commit_count(branch.total)
+        )
+        .unwrap();
+        for activity in &branch.activities {
+            write_branch_activity(out, activity);
+        }
+        out.push('\n');
+    }
+}
+
+fn write_branch_activity(out: &mut String, activity: &Activity) {
+    let summary = match &activity.url {
+        Some(url) => format!("[{}]({url})", escape_link_text(&activity.summary)),
+        None => activity.summary.clone(),
+    };
+    writeln!(out, "- {summary} _({})_", local_time(activity.occurred_at)).unwrap();
 }
 
 fn write_pull_requests(out: &mut String, report: &Report) {
@@ -214,16 +247,18 @@ pub fn text(report: &Report, colors: bool) -> String {
     .unwrap();
     writeln!(
         out,
-        "{} ({}) · {} pull requests · {} issues · {} activity signals",
+        "{} ({}) · {} pull requests · {} · {} issues · {} activity signals",
         style.bold(&capitalize(&report.period)),
         report.dates,
         report.pull_requests.len(),
+        branch_count(report.branches.len()),
         issue_count,
         report.total
     )
     .unwrap();
 
     if report.pull_requests.is_empty()
+        && report.branches.is_empty()
         && report.issues.is_empty()
         && report.other_activity.is_empty()
     {
@@ -322,6 +357,23 @@ pub fn text(report: &Report, colors: bool) -> String {
         }
     }
 
+    if !report.branches.is_empty() {
+        writeln!(out, "\n{}", style.section("BRANCHES WITHOUT PULL REQUESTS")).unwrap();
+        for branch in &report.branches {
+            writeln!(
+                out,
+                "\n{} — {}",
+                style.link(&format!("{}:{}", branch.repository, branch.branch)),
+                commit_count(branch.total)
+            )
+            .unwrap();
+            writeln!(out, "{}", style.dim(&branch.html_url)).unwrap();
+            for activity in &branch.activities {
+                write_text_branch_activity(&mut out, activity, &style, 2);
+            }
+        }
+    }
+
     if !report.issues.is_empty() {
         writeln!(
             out,
@@ -367,6 +419,20 @@ pub fn text(report: &Report, colors: bool) -> String {
         .unwrap();
     }
     out
+}
+
+fn write_text_branch_activity(out: &mut String, activity: &Activity, style: &Ansi, indent: usize) {
+    let padding = " ".repeat(indent);
+    writeln!(
+        out,
+        "{padding}- {} {}",
+        activity.summary,
+        style.dim(&format!("({})", local_time(activity.occurred_at)))
+    )
+    .unwrap();
+    if let Some(url) = &activity.url {
+        writeln!(out, "{padding}  {}", style.dim(url)).unwrap();
+    }
 }
 
 fn write_text_activity(
@@ -463,23 +529,26 @@ pub fn html(report: &Report) -> String {
     .unwrap();
     writeln!(
         out,
-        "<header><h1>GitHub progress for <span>@{}</span></h1><p><strong>{}</strong> ({}) · {} pull requests · {} issues · {} activity signals</p></header>",
+        "<header><h1>GitHub progress for <span>@{}</span></h1><p><strong>{}</strong> ({}) · {} pull requests · {} · {} issues · {} activity signals</p></header>",
         escape_html(&report.user),
         escape_html(&capitalize(&report.period)),
         escape_html(&report.dates),
         report.pull_requests.len(),
+        branch_count(report.branches.len()),
         issue_count,
         report.total
     )
     .unwrap();
 
     if report.pull_requests.is_empty()
+        && report.branches.is_empty()
         && report.issues.is_empty()
         && report.other_activity.is_empty()
     {
         out.push_str("<p class=\"empty\">No GitHub activity found in this timeframe.</p>\n");
     } else {
         write_html_pull_requests(&mut out, report);
+        write_html_branches(&mut out, report);
         write_html_issues(&mut out, report);
         write_html_other(&mut out, report);
     }
@@ -488,6 +557,29 @@ pub fn html(report: &Report) -> String {
     }
     out.push_str("</main>\n</body>\n</html>\n");
     out
+}
+
+fn write_html_branches(out: &mut String, report: &Report) {
+    if report.branches.is_empty() {
+        return;
+    }
+    out.push_str("<section><h2>Branches without pull requests</h2>\n");
+    for branch in &report.branches {
+        writeln!(
+            out,
+            "<article class=\"branch\"><h3><a href=\"{}\"><code>{}:{}</code></a></h3><p class=\"meta\">{}</p><ul class=\"activity\">",
+            escape_html(&branch.html_url),
+            escape_html(&branch.repository),
+            escape_html(&branch.branch),
+            commit_count(branch.total)
+        )
+        .unwrap();
+        for activity in &branch.activities {
+            write_html_branch_activity(out, activity);
+        }
+        out.push_str("</ul></article>\n");
+    }
+    out.push_str("</section>\n");
 }
 
 fn write_html_pull_requests(out: &mut String, report: &Report) {
@@ -675,6 +767,27 @@ fn write_html_activity(out: &mut String, activity: &Activity, show_repository: b
     .unwrap();
 }
 
+fn write_html_branch_activity(out: &mut String, activity: &Activity) {
+    out.push_str("<li>");
+    if let Some(url) = &activity.url {
+        write!(
+            out,
+            "<a href=\"{}\">{}</a>",
+            escape_html(url),
+            escape_html(&activity.summary)
+        )
+        .unwrap();
+    } else {
+        out.push_str(&escape_html(&activity.summary));
+    }
+    writeln!(
+        out,
+        " <time>{}</time></li>",
+        escape_html(&local_time(activity.occurred_at))
+    )
+    .unwrap();
+}
+
 fn related_issue_count(report: &Report) -> usize {
     report
         .pull_requests
@@ -711,11 +824,23 @@ const HTML_CSS: &str = r#"
 * { box-sizing:border-box; } body { margin:0; background:var(--bg); color:var(--text); font:15px/1.55 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
 main { max-width:960px; margin:0 auto; padding:40px 24px 72px; } header { margin-bottom:32px; } h1 { margin:0; font-size:2rem; } h1 span { color:var(--accent); } h2 { margin-top:32px; } h3 { margin:24px 0 8px; }
 a { color:var(--link); text-decoration:none; } a:hover { text-decoration:underline; } code { padding:.12em .35em; border-radius:4px; background:color-mix(in srgb,var(--muted) 14%,transparent); }
-article.pull-request, article.issue, section { margin:20px 0; padding:20px 24px; border:1px solid var(--border); border-radius:10px; background:var(--card); } article.pull-request>h2 { margin-top:0; } .meta, small, time { color:var(--muted); }
+article.pull-request, article.issue, article.branch, section { margin:20px 0; padding:20px 24px; border:1px solid var(--border); border-radius:10px; background:var(--card); } article.pull-request>h2 { margin-top:0; } .meta, small, time { color:var(--muted); }
 .summary-list li { margin:.65rem 0; } .summary-list small { display:block; margin-left:1rem; } .status { display:inline-block; margin-left:.35rem; padding:.08rem .45rem; border:1px solid currentColor; border-radius:999px; font-size:.78rem; font-weight:700; text-transform:uppercase; } .status.done { color:var(--done); } .status.open { color:var(--open); } .status.draft { color:var(--draft); }
 ul.activity, ul.issues { padding-left:1.3rem; } ul.activity li, ul.issues li { margin:.45rem 0; } .warning { margin-top:24px; padding:14px 18px; border-left:4px solid var(--draft); background:var(--card); } .empty { padding:24px; border:1px dashed var(--border); border-radius:10px; }
-@media print { :root { --bg:#fff; --card:#fff; --text:#000; } main { max-width:none; padding:0; } article.pull-request, article.issue, section { break-inside:avoid; } }
+@media print { :root { --bg:#fff; --card:#fff; --text:#000; } main { max-width:none; padding:0; } article.pull-request, article.issue, article.branch, section { break-inside:avoid; } }
 "#;
+
+fn branch_count(count: usize) -> String {
+    if count == 1 {
+        "1 branch without PR".to_owned()
+    } else {
+        format!("{count} branches without PRs")
+    }
+}
+
+fn commit_count(count: usize) -> String {
+    format!("{count} {}", count_label(Category::Commits, count))
+}
 
 fn count_summary(pull: &PullRequestWork) -> String {
     let parts: Vec<_> = Category::ALL
@@ -763,6 +888,9 @@ fn capitalize(value: &str) -> String {
 mod tests {
     use super::*;
     use crate::activity::build_report;
+    use crate::github::{Actor, GitHubEvent, Repository};
+    use chrono::{TimeZone, Utc};
+    use serde_json::json;
 
     #[test]
     fn empty_report_is_clear_and_pull_request_focused() {
@@ -775,7 +903,52 @@ mod tests {
         );
         let output = markdown(&report);
         assert!(output.contains("No GitHub activity found"));
-        assert!(output.contains("0 pull requests and 0 issues moved forward"));
+        assert!(
+            output.contains("0 pull requests, 0 branches without PRs, and 0 issues moved forward")
+        );
+    }
+
+    #[test]
+    fn branches_without_pull_requests_appear_in_every_format() {
+        let event = GitHubEvent {
+            id: "push-1".to_owned(),
+            kind: "PushEvent".to_owned(),
+            actor: Actor {
+                login: "octocat".to_owned(),
+            },
+            repo: Repository {
+                name: "acme/web".to_owned(),
+            },
+            payload: json!({
+                "ref": "refs/heads/feature/header",
+                "commits": [{"sha": "1234567890", "message": "Fix header"}]
+            }),
+            public: true,
+            created_at: Utc.with_ymd_and_hms(2026, 10, 26, 8, 0, 0).unwrap(),
+        };
+        let report = build_report(
+            "octocat".into(),
+            "yesterday".into(),
+            "2026-10-26".into(),
+            vec![event],
+            false,
+        );
+
+        let markdown = markdown(&report);
+        assert!(markdown.contains("## Branches without pull requests"));
+        assert!(markdown.contains("acme/web:feature/header"));
+
+        let text = text(&report, false);
+        assert!(text.contains("BRANCHES WITHOUT PULL REQUESTS"));
+        assert!(text.contains("acme/web:feature/header — 1 commit"));
+
+        let html = html(&report);
+        assert!(html.contains("Branches without pull requests"));
+        assert!(html.contains("acme/web:feature/header"));
+
+        let json = serde_json::to_string(&report).unwrap();
+        assert!(json.contains("\"branches\":[{"));
+        assert!(json.contains("\"branch\":\"feature/header\""));
     }
 
     #[test]

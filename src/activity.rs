@@ -104,12 +104,23 @@ pub struct IssueWork {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct BranchWork {
+    pub repository: String,
+    pub branch: String,
+    pub html_url: String,
+    pub total: usize,
+    pub activities: Vec<Activity>,
+    pub last_activity_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct Report {
     pub user: String,
     pub period: String,
     pub dates: String,
     pub total: usize,
     pub pull_requests: Vec<PullRequestWork>,
+    pub branches: Vec<BranchWork>,
     pub issues: Vec<IssueWork>,
     pub other_activity: Vec<Activity>,
     pub may_be_truncated: bool,
@@ -145,6 +156,7 @@ pub fn build_report(
     may_be_truncated: bool,
 ) -> Report {
     let mut pull_requests: BTreeMap<(String, u64), PullRequestWork> = BTreeMap::new();
+    let mut branches: BTreeMap<(String, String), BranchWork> = BTreeMap::new();
     let mut issues: BTreeMap<(String, u64), IssueWork> = BTreeMap::new();
     let mut other_activity = Vec::new();
     let mut seen_commits = HashSet::new();
@@ -152,6 +164,9 @@ pub fn build_report(
     for event in events {
         let pull_request = pull_request_metadata(&event);
         let issue = issue_metadata(&event);
+        let pushed_branch = (event.kind == "PushEvent" && pull_request.is_none())
+            .then(|| event_branch(&event))
+            .flatten();
         let activities = parse_event(&event, &mut seen_commits);
 
         for activity in activities {
@@ -173,6 +188,18 @@ pub fn build_report(
                     last_activity_at: activity.occurred_at,
                 });
                 merge_pull_request_metadata(entry, metadata, &user);
+                entry.last_activity_at = entry.last_activity_at.max(activity.occurred_at);
+                entry.activities.push(activity);
+            } else if let Some(branch) = &pushed_branch {
+                let key = (activity.repository.clone(), branch.clone());
+                let entry = branches.entry(key).or_insert_with(|| BranchWork {
+                    repository: activity.repository.clone(),
+                    branch: branch.clone(),
+                    html_url: branch_url(&activity.repository, branch),
+                    total: 0,
+                    activities: Vec::new(),
+                    last_activity_at: activity.occurred_at,
+                });
                 entry.last_activity_at = entry.last_activity_at.max(activity.occurred_at);
                 entry.activities.push(activity);
             } else if let Some(metadata) = &issue {
@@ -232,6 +259,29 @@ pub fn build_report(
         )
     });
 
+    let mut branches: Vec<_> = branches
+        .into_values()
+        .map(|mut branch| {
+            branch
+                .activities
+                .sort_by_key(|activity| Reverse(activity.occurred_at));
+            branch.total = branch
+                .activities
+                .iter()
+                .map(|activity| activity.count)
+                .sum();
+            branch
+        })
+        .collect();
+    branches.sort_by_key(|branch| {
+        (
+            Reverse(branch.total),
+            Reverse(branch.last_activity_at),
+            branch.repository.clone(),
+            branch.branch.clone(),
+        )
+    });
+
     let mut issues: Vec<_> = issues
         .into_values()
         .map(|mut issue| {
@@ -246,6 +296,7 @@ pub fn build_report(
     other_activity.sort_by_key(|activity| Reverse(activity.occurred_at));
 
     let total = pull_requests.iter().map(|pull| pull.total).sum::<usize>()
+        + branches.iter().map(|branch| branch.total).sum::<usize>()
         + issues.iter().map(|issue| issue.total).sum::<usize>()
         + other_activity
             .iter()
@@ -258,6 +309,7 @@ pub fn build_report(
         dates,
         total,
         pull_requests,
+        branches,
         issues,
         other_activity,
         may_be_truncated,
@@ -683,6 +735,17 @@ fn repo_web_url(repository: &str) -> Option<String> {
         .then(|| format!("https://github.com/{repository}"))
 }
 
+fn branch_url(repository: &str, branch: &str) -> String {
+    let branch = branch
+        .split('/')
+        .map(urlencoding::encode)
+        .collect::<Vec<_>>()
+        .join("/");
+    repo_web_url(repository)
+        .map(|base| format!("{base}/tree/{branch}"))
+        .unwrap_or_default()
+}
+
 pub fn local_time(timestamp: DateTime<Utc>) -> String {
     timestamp.with_timezone(&Local).format("%H:%M").to_string()
 }
@@ -793,17 +856,50 @@ mod tests {
     }
 
     #[test]
-    fn keeps_unlinked_commits_as_other_activity() {
-        let payload = json!({"ref":"refs/heads/main","commits":[{"sha":"1234567890","message":"Fix header"}]});
+    fn groups_pushes_without_pull_requests_by_branch() {
+        let first = json!({"ref":"refs/heads/feature/header","commits":[{"sha":"1234567890","message":"Fix header"}]});
+        let second = json!({"ref":"refs/heads/feature/header","commits":[{"sha":"abcdef1234","message":"Add header test"}]});
         let report = build_report(
             "octocat".into(),
             "yesterday".into(),
             "2026-10-26".into(),
-            vec![event("PushEvent", "acme/web", payload, 8)],
+            vec![
+                event("PushEvent", "acme/web", first, 8),
+                event("PushEvent", "acme/web", second, 9),
+            ],
             false,
         );
         assert!(report.pull_requests.is_empty());
-        assert_eq!(report.other_activity.len(), 1);
-        assert_eq!(report.total, 1);
+        assert_eq!(report.branches.len(), 1);
+        assert_eq!(report.branches[0].repository, "acme/web");
+        assert_eq!(report.branches[0].branch, "feature/header");
+        assert_eq!(report.branches[0].total, 2);
+        assert_eq!(report.branches[0].activities.len(), 2);
+        assert!(
+            report.branches[0]
+                .html_url
+                .ends_with("/tree/feature/header")
+        );
+        assert!(report.other_activity.is_empty());
+        assert_eq!(report.total, 2);
+    }
+
+    #[test]
+    fn keeps_pushes_with_pull_request_metadata_under_the_pull_request() {
+        let payload = json!({
+            "ref":"refs/heads/feature/cache",
+            "commits":[{"sha":"1234567890","message":"Tune cache"}],
+            "_activity_report_pr": pr(7, "Cache")
+        });
+        let report = build_report(
+            "octocat".into(),
+            "yesterday".into(),
+            "2026-10-26".into(),
+            vec![event("PushEvent", "acme/api", payload, 8)],
+            false,
+        );
+        assert_eq!(report.pull_requests.len(), 1);
+        assert!(report.branches.is_empty());
+        assert_eq!(report.pull_requests[0].total, 1);
     }
 }

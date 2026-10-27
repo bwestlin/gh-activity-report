@@ -45,7 +45,7 @@ render_frame() {
   if (( frame >= 2 )); then
     draw+=(
       -pointsize 22 -fill "#56d4dd" -annotate +34+112 'GitHub progress for @octocat'
-      -pointsize 18 -fill "#e6edf3" -annotate +34+148 'Yesterday (2026-10-26) · 3 pull requests · 2 issues · 14 activity signals'
+      -pointsize 18 -fill "#e6edf3" -annotate +34+148 'Yesterday (2026-10-26) · 3 pull requests · 1 branch without PR · 2 issues · 16 activity signals'
     )
   fi
   if (( frame >= 3 )); then
@@ -78,11 +78,10 @@ render_frame() {
       -pointsize 17 -fill "#61afef" -annotate +34+530 'Related issues'
       -fill "#e6edf3" -annotate +54+562 'Closes: acme/web#163 — Repeated API calls after sign-in'
       -fill "#98c379" -annotate +${status_x}+562 'Closed'
-      -fill "#61afef" -annotate +34+604 'Commits (2)'
-      -fill "#e6edf3" -annotate +54+636 'a41dc92 Cache session-scoped requests'
-      -fill "#7d8590" -annotate +705+636 '(14:32)'
-      -fill "#e6edf3" -annotate +54+668 'dd77b10 Add cache invalidation coverage'
-      -fill "#7d8590" -annotate +705+668 '(15:08)'
+      -fill "#c678dd" -annotate +34+604 'BRANCHES WITHOUT PULL REQUESTS'
+      -fill "#61afef" -annotate +54+636 'acme/web:feature/accessibility'
+      -fill "#e6edf3" -annotate +430+636 '2 commits'
+      -fill "#7d8590" -annotate +54+668 'Latest: 83c91ad Improve keyboard focus styles (16:12)'
     )
   fi
   if [[ "$cursor" == true ]]; then
@@ -113,7 +112,7 @@ render_variant_frame() {
     this-week)
       draw+=(
         -pointsize 22 -fill "#56d4dd" -annotate +34+112 'GitHub progress for @octocat'
-        -pointsize 18 -fill "#e6edf3" -annotate +34+148 'This week (2026-10-26 to 2026-10-27) · 4 pull requests · 3 issues · 22 activity signals'
+        -pointsize 16 -fill "#e6edf3" -annotate +34+148 'This week (2026-10-26 to 2026-10-27) · 4 pull requests · 1 branch without PR · 3 issues · 24 activity signals'
         -fill "#c678dd" -annotate +34+199 'PULL REQUESTS MOVED FORWARD'
         -fill "#61afef" -annotate +34+236 '1. acme/web#184'
         -fill "#e6edf3" -annotate +235+236 'Cache authenticated API responses'
@@ -135,13 +134,16 @@ render_variant_frame() {
         -fill "#61afef" -annotate +34+572 'Related issues'
         -fill "#e6edf3" -annotate +54+605 'Closes: acme/web#163 — Repeated API calls after sign-in'
         -fill "#98c379" -annotate +930+605 'Closed'
+        -fill "#c678dd" -annotate +34+644 'BRANCHES WITHOUT PULL REQUESTS'
+        -fill "#61afef" -annotate +54+675 'acme/web:feature/accessibility'
+        -fill "#e6edf3" -annotate +430+675 '2 commits'
       )
       ;;
     markdown)
       draw+=(
         -pointsize 16 -fill "#e6edf3" -annotate +34+112 '# GitHub progress for @octocat'
-        -annotate +34+149 '**Last week** (2026-10-19 to 2026-10-25) — 2 pull requests and 1 issue moved forward'
-        -annotate +34+176 '(9 activity signals)'
+        -annotate +34+149 '**Last week** (2026-10-19 to 2026-10-25) — 2 pull requests, 1 branch without PR, and 1 issue moved forward'
+        -annotate +34+176 '(11 activity signals)'
         -fill "#c678dd" -annotate +34+220 '## Pull requests moved forward'
         -fill "#e6edf3" -annotate +34+257 '1. [acme/web#184 — Cache authenticated API responses]('
         -fill "#61afef" -annotate +604+257 'https://github.com/acme/web/pull/184'
@@ -154,14 +156,15 @@ render_variant_frame() {
         -fill "#c678dd" -annotate +34+404 '## 1. [Cache authenticated API responses](https://github.com/acme/web/pull/184)'
         -fill "#e6edf3" -annotate +34+441 '`acme/web#184` · **Merged** · Authored by you · `feature/cache-auth` → `main`'
         -annotate +34+478 '**Progress:** 2 commits, 1 review, 2 comments, 2 PR updates'
-        -fill "#c678dd" -annotate +34+527 '### Related issues'
-        -fill "#e6edf3" -annotate +34+564 '- **Closes:** [acme/web#163 — Repeated API calls after sign-in](...) — **Closed**'
+        -fill "#c678dd" -annotate +34+527 '## Branches without pull requests'
+        -fill "#e6edf3" -annotate +34+564 '### [`acme/web:feature/accessibility`](...) — 2 commits'
+        -annotate +34+601 '- [83c91ad Improve keyboard focus styles](...) _(16:12)_'
       )
       ;;
     console)
       draw+=(
         -pointsize 22 -fill "#56d4dd" -annotate +34+112 'GitHub progress for @octocat'
-        -pointsize 18 -fill "#e6edf3" -annotate +34+148 'Custom range (2026-10-01 to 2026-10-15) · 2 pull requests · 1 issue · 9 activity signals'
+        -pointsize 16 -fill "#e6edf3" -annotate +34+148 'Custom range (2026-10-01 to 2026-10-15) · 2 pull requests · 1 branch without PR · 1 issue · 11 activity signals'
         -fill "#c678dd" -annotate +34+199 'PULL REQUESTS MOVED FORWARD'
         -fill "#61afef" -annotate +34+236 '1. acme/api#77'
         -fill "#e6edf3" -annotate +225+236 'Add request correlation IDs'
@@ -191,7 +194,7 @@ render_variant_frame() {
         -fill "#8b949e" -font "$font" -pointsize 14 -annotate +64+124 'standup.html'
         -font "$ui_font" -pointsize 28 -fill "#e6edf3" -annotate +70+182 'GitHub progress for '
         -fill "#a371f7" -annotate +351+182 '@octocat'
-        -pointsize 15 -fill "#8b949e" -annotate +70+222 'Yesterday (2026-10-26) · 3 pull requests · 2 issues · 14 activity signals'
+        -pointsize 15 -fill "#8b949e" -annotate +70+222 'Yesterday (2026-10-26) · 3 pull requests · 1 branch without PR · 2 issues · 16 activity signals'
         -stroke "#30363d" -strokewidth 1 -fill "#0d1117" -draw "roundrectangle 70,258 1128,441 10,10"
         -stroke none -font "$ui_font" -pointsize 21 -fill "#e6edf3" -annotate +94+284 'Pull requests moved forward'
         -pointsize 15 -fill "#58a6ff" -annotate +112+328 'acme/web#184 — Cache authenticated API responses'
@@ -208,10 +211,9 @@ render_variant_frame() {
         -pointsize 14 -fill "#8b949e" -annotate +94+535 'acme/web#184 · Authored by you · feature/cache-auth → main'
         -pointsize 14 -fill "#e6edf3" -annotate +94+571 'Progress: '
         -fill "#8b949e" -annotate +170+571 '2 commits, 1 review, 2 comments, 2 PR updates'
-        -pointsize 17 -fill "#e6edf3" -annotate +94+609 'Related issues'
-        -pointsize 14 -fill "#58a6ff" -annotate +112+637 'Closes: acme/web#163 — Repeated API calls after sign-in'
-        -stroke "#3fb950" -strokewidth 1 -fill none -draw "roundrectangle 815,620 883,645 12,12"
-        -stroke none -pointsize 11 -fill "#3fb950" -annotate +825+625 'CLOSED'
+        -pointsize 17 -fill "#e6edf3" -annotate +94+609 'Branches without pull requests'
+        -pointsize 14 -fill "#58a6ff" -annotate +112+637 'acme/web:feature/accessibility'
+        -fill "#8b949e" -annotate +440+637 '2 commits'
       )
       ;;
   esac

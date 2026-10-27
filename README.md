@@ -23,7 +23,8 @@
 `gh-activity-report` answers the question behind a daily standup: **which pull
 requests and issues did I move forward?** It finds the owner of `GITHUB_TOKEN`,
 collects their recent activity, connects commits and issues to pull requests,
-and ranks the resulting workstreams by activity.
+groups unmatched pushes by branch, and ranks the resulting workstreams by
+activity.
 
 ## Installation
 
@@ -86,11 +87,14 @@ list of repositories.
 | Reviews | Approvals, comments, and change requests submitted by the token owner |
 | Comments | Issue and review comments, with direct links and short excerpts |
 | Related issues | GitHub closing relationships such as `Fixes #123`, plus other references |
-| Standalone work | Issues and commits that cannot be associated with a pull request |
+| Branches without PRs | Commits grouped by repository and branch when no pull request exists |
+| Standalone work | Issues and other activity that cannot be associated with a pull request |
 
 Pull requests with the most activity are shown first. Inside each pull request,
 the report presents commits, reviews, comments, PR progress, related issue
-progress, and other events in that order.
+progress, and other events in that order. Pushed branches without pull requests
+follow as their own ranked workstreams, before standalone issues and other
+activity.
 
 ## Example output
 
@@ -99,7 +103,7 @@ text output starts like this:
 
 ```text
 GitHub progress for @octocat
-Yesterday (2026-10-26) · 3 pull requests · 2 issues · 14 activity signals
+Yesterday (2026-10-26) · 3 pull requests · 1 branch without PR · 2 issues · 16 activity signals
 
 PULL REQUESTS MOVED FORWARD
 1. acme/web#184 Cache authenticated API responses — Merged
@@ -107,6 +111,12 @@ PULL REQUESTS MOVED FORWARD
 2. acme/api#77 Add request correlation IDs — Open
    1 commit, 1 review, 1 comment
 3. acme/design#42 Refresh settings navigation — Draft
+
+BRANCHES WITHOUT PULL REQUESTS
+
+acme/web:feature/accessibility — 2 commits
+  - 83c91ad Improve keyboard focus styles (16:12)
+  - f0a27bc Add navigation landmark tests (15:48)
 ```
 
 All names, numbers, titles, and dates in this example are fictional.
@@ -155,6 +165,8 @@ Set `NO_COLOR=1` or `TERM=dumb` to disable console colors.
 4. GitHub's closing-issue relationship connects PRs to issues they may close.
 5. Feature-branch pushes and merge or squash commits are associated with their
    pull requests when possible.
+6. Remaining pushes are grouped by repository and branch instead of being
+   folded into miscellaneous activity.
 
 The tool uses read-only GitHub API calls.
 
@@ -165,7 +177,8 @@ report warns when it reaches the available pagination limit. Use this tool as a
 standup memory aid rather than as a complete audit log or time tracker.
 
 Activity that GitHub does not associate with a pull request remains visible in
-the standalone sections instead of being guessed into a workstream.
+the branch or standalone sections instead of being guessed into a pull-request
+workstream.
 
 ## Development
 
