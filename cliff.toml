@@ -1,0 +1,53 @@
+[changelog]
+header = """
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+"""
+body = """
+{% if version %}
+## {{ version | trim_start_matches(pat="v") }} - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}
+## Unreleased
+{% endif -%}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | upper_first }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | upper_first }}\
+{% if commit.breaking %} [**breaking**]{% endif %}
+{% endfor -%}
+{% endfor %}\
+"""
+trim = true
+
+[git]
+conventional_commits = true
+require_conventional = false
+filter_unconventional = false
+protect_breaking_commits = true
+filter_commits = true
+fail_on_unmatched_commit = true
+tag_pattern = "v[0-9].*"
+sort_commits = "oldest"
+commit_parsers = [
+    { message = "^feat", group = "Added" },
+    { message = "^fix", group = "Fixed" },
+    { message = "^perf", group = "Performance" },
+    { message = "^refactor", group = "Changed" },
+    { message = "^docs?", group = "Documentation" },
+    { message = "^revert", group = "Reverted" },
+    { message = "^(build|ci|chore|style|test)", skip = true },
+
+    # These commits predate the Conventional Commits policy. Pin their handling
+    # by SHA so future unconventional messages cannot match these exceptions.
+    { sha = "c235861d5ebd77612c5a558f03f991197dcaaa81", skip = true },
+    { sha = "d1fc17d18c3cbf86092ae1284418755f5271ae27", group = "Added" },
+    { sha = "702ac7d5c0ab806acf0c8f56fc531dc238aabb15", group = "Added" },
+    { sha = "b549d3c9d894f3378af0295b2f21a0ca1ed2d19a", group = "Documentation" },
+    { sha = "1ac734031f3817f24ab2df6dab6e925864704e3e", group = "Documentation" },
+    { sha = "65265f73d41d12bd8bfb62b02048d29ebaf3b131", group = "Documentation" },
+    { sha = "4f4b9f829f85101215eb92b328e320704e907dee", group = "Added" },
+]

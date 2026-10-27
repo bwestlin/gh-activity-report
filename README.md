@@ -10,11 +10,11 @@
 
 **Turn recent GitHub activity into a pull-request-focused standup report.**
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Crates.io](https://img.shields.io/crates/v/gh-activity-report.svg)](https://crates.io/crates/gh-activity-report)
 [![dependency status](https://deps.rs/repo/github/bwestlin/gh-activity-report/status.svg)](https://deps.rs/repo/github/bwestlin/gh-activity-report)
-[![Rust 2024](https://img.shields.io/badge/rust-2024-orange.svg)](https://www.rust-lang.org/)
+[![Build status](https://github.com/bwestlin/gh-activity-report/workflows/CI/badge.svg)](https://github.com/bwestlin/gh-activity-report/actions)
 
-![Animated terminal demo of gh-activity-report](assets/gh-activity-report-demo.gif)
+![Animated terminal demo of gh-activity-report](https://raw.githubusercontent.com/bwestlin/gh-activity-report/main/assets/gh-activity-report-demo.gif)
 
 <sub>Mocked example output. No real repository or activity data is shown.</sub>
 
@@ -28,10 +28,10 @@ activity.
 
 ## Installation
 
-Install directly from GitHub:
+Install the latest release from crates.io:
 
 ```sh
-cargo install --git https://github.com/bwestlin/gh-activity-report
+cargo install gh-activity-report
 ```
 
 Or install the current source checkout:
@@ -82,13 +82,13 @@ list of repositories.
 
 | Section | What it captures |
 | --- | --- |
-| Pull requests | Status, ownership, source and target branches, and overall activity |
-| Commits | Pushes to known PR branches and merge or squash commits referencing a PR |
-| Reviews | Approvals, comments, and change requests submitted by the token owner |
+| Pull requests | Status, ownership, branches, and activity |
+| Commits | Pushes to PR branches and merge or squash commits |
+| Reviews | Approvals, comments, and change requests by the token owner |
 | Comments | Issue and review comments, with direct links and short excerpts |
-| Related issues | GitHub closing relationships such as `Fixes #123`, plus other references |
-| Branches without PRs | Commits grouped by repository and branch when no pull request exists |
-| Standalone work | Issues and other activity that cannot be associated with a pull request |
+| Related issues | Closing links like `Fixes #123` and other references |
+| Branches without PRs | Commits grouped by branch when no pull request exists |
+| Standalone work | Issues and activity not associated with a pull request |
 
 Pull requests with the most activity are shown first. Inside each pull request,
 the report presents commits, reviews, comments, PR progress, related issue
@@ -103,7 +103,8 @@ text output starts like this:
 
 ```text
 GitHub progress for @octocat
-Yesterday (2026-10-26) · 3 pull requests · 1 branch without PR · 2 issues · 16 activity signals
+Yesterday (2026-10-26) · 3 pull requests · 1 branch without PR
+· 2 issues · 16 activity signals
 
 PULL REQUESTS MOVED FORWARD
 1. acme/web#184 Cache authenticated API responses — Merged
@@ -130,7 +131,7 @@ All names, numbers, titles, and dates in this example are fictional.
 | `this-week` | Monday through today |
 | `last-week` | The previous Monday through Sunday |
 | `last-7-days` | The seven complete calendar days before today |
-| `--since DATE --until DATE` | An inclusive custom date range in `YYYY-MM-DD` format |
+| `--since DATE --until DATE` | Inclusive `YYYY-MM-DD` date range |
 
 Calendar boundaries and displayed times use the machine's local timezone.
 
@@ -182,12 +183,11 @@ workstream.
 
 ## Development
 
-Run the local checks with:
+The repository uses [just](https://github.com/casey/just) as its task runner.
+Run `just` to list available recipes, or run all local checks with:
 
 ```sh
-cargo fmt --check
-cargo test
-cargo clippy --all-targets --all-features -- -D warnings
+just check-all
 ```
 
 Regenerate the mocked terminal demo after changing console output:
@@ -198,6 +198,10 @@ scripts/render-demo.sh
 
 The script requires ImageMagick and does not call GitHub or use
 `GITHUB_TOKEN`.
+
+Releases use `cargo-release` and `git-cliff`. See
+[RELEASING.md](RELEASING.md) for the complete local release procedure.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for pull request and commit conventions.
 
 ## License
 
