@@ -1,106 +1,191 @@
-# gh-activity-report
+<!-- Allow this file to not have a first line heading -->
+<!-- markdownlint-disable-file MD041 no-emphasis-as-heading -->
 
-A small Rust CLI that turns a GitHub user's recent activity into a report that
-is easy to scan before a daily standup. The report is organized around pull
-requests and the issues they move forward—not around repositories. Pull
-requests are ranked by their activity, then each one is shown in this order:
+<!-- inline html -->
+<!-- markdownlint-disable-file MD033 -->
 
-1. commits
-2. reviews
-3. comments
-4. pull request progress
-5. related issue progress
-6. other GitHub activity
+<div align="center">
 
-PR state, ownership, branches, and related issues are included. Commits pushed
-to a PR branch and merge commits that reference a known PR are grouped under
-that PR. Issues from GitHub's closing-issue relationship are labeled `Closes`
-and linked with their current state; description references are retained as
-`Related`. Standalone issues and work that cannot be linked to a PR appear in
-smaller fallback sections. The report subject is always inferred from
-`GITHUB_TOKEN`, including private activity the token is allowed to read.
+# `gh-activity-report`
 
-## Install
+**Turn recent GitHub activity into a pull-request-focused standup report.**
 
-```shell
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![dependency status](https://deps.rs/repo/github/bwestlin/gh-activity-report/status.svg)](https://deps.rs/repo/github/bwestlin/gh-activity-report)
+[![Rust 2024](https://img.shields.io/badge/rust-2024-orange.svg)](https://www.rust-lang.org/)
+
+![Animated terminal demo of gh-activity-report](assets/gh-activity-report-demo.gif)
+
+<sub>Mocked example output. No real repository or activity data is shown.</sub>
+
+</div>
+
+`gh-activity-report` answers the question behind a daily standup: **which pull
+requests and issues did I move forward?** It finds the owner of `GITHUB_TOKEN`,
+collects their recent activity, connects commits and issues to pull requests,
+and ranks the resulting workstreams by activity.
+
+## Installation
+
+Install directly from GitHub:
+
+```sh
+cargo install --git https://github.com/bwestlin/gh-activity-report
+```
+
+Or install the current source checkout:
+
+```sh
 cargo install --path .
 ```
 
-`GITHUB_TOKEN` is required. A fine-grained token needs read access to the
-activity and private repositories you want included.
+Set a GitHub token before running the command:
 
-```shell
+```sh
 export GITHUB_TOKEN=github_pat_...
 ```
 
-## Usage
+The token owner is always the report subject. For private activity, the token
+must be allowed to read the relevant repositories, pull requests, issues,
+contents, and user events.
 
-Yesterday for the token owner (the default and only report subject):
+## Quick start
 
-```shell
+```sh
+# Report yesterday's work (the default).
 gh-activity-report
-```
 
-Other useful periods:
-
-```shell
-gh-activity-report today
-gh-activity-report this-week
+# Report the previous Monday through Sunday.
 gh-activity-report last-week
-gh-activity-report last-7-days
-```
 
-Use an inclusive custom date range:
+# Report the current week through today.
+gh-activity-report this-week
 
-```shell
+# Use an inclusive custom date range.
 gh-activity-report --since 2026-10-01 --until 2026-10-15
 ```
 
-Output defaults to colored console text when run interactively and plain text
-when piped or redirected:
+Interactive output is colorized automatically. Pipes and redirects receive
+plain text without ANSI escape sequences:
 
-```shell
+```sh
 gh-activity-report last-week
 gh-activity-report last-week | less
 gh-activity-report last-week > standup.txt
 ```
 
-You can also select the format explicitly:
+## What the report shows
 
-```shell
-gh-activity-report last-week --format console
-gh-activity-report last-week --format text
+The report is organized around work moving through pull requests rather than a
+list of repositories.
+
+| Section | What it captures |
+| --- | --- |
+| Pull requests | Status, ownership, source and target branches, and overall activity |
+| Commits | Pushes to known PR branches and merge or squash commits referencing a PR |
+| Reviews | Approvals, comments, and change requests submitted by the token owner |
+| Comments | Issue and review comments, with direct links and short excerpts |
+| Related issues | GitHub closing relationships such as `Fixes #123`, plus other references |
+| Standalone work | Issues and commits that cannot be associated with a pull request |
+
+Pull requests with the most activity are shown first. Inside each pull request,
+the report presents commits, reviews, comments, PR progress, related issue
+progress, and other events in that order.
+
+## Example output
+
+The animated example above is generated from mock data. The equivalent plain
+text output starts like this:
+
+```text
+GitHub progress for @octocat
+Yesterday (2026-10-26) · 3 pull requests · 2 issues · 14 activity signals
+
+PULL REQUESTS MOVED FORWARD
+1. acme/web#184 Cache authenticated API responses — Merged
+   2 commits, 1 review, 2 comments, 2 PR updates
+2. acme/api#77 Add request correlation IDs — Open
+   1 commit, 1 review, 1 comment
+3. acme/design#42 Refresh settings navigation — Draft
+```
+
+All names, numbers, titles, and dates in this example are fictional.
+
+## Timeframes
+
+| Value | Dates included |
+| --- | --- |
+| `yesterday` | The previous local calendar day; this is the default |
+| `today` | Today through the current time |
+| `this-week` | Monday through today |
+| `last-week` | The previous Monday through Sunday |
+| `last-7-days` | The seven complete calendar days before today |
+| `--since DATE --until DATE` | An inclusive custom date range in `YYYY-MM-DD` format |
+
+Calendar boundaries and displayed times use the machine's local timezone.
+
+## Output formats
+
+| Format | Behavior |
+| --- | --- |
+| `console` | Terminal layout with ANSI styling when supported |
+| `text` | Plain text that never contains ANSI sequences |
+| `markdown` | Linked Markdown suitable for notes or a standup document |
+| `json` | Structured machine-readable output |
+| `html` | Standalone responsive HTML with light, dark, and print styles |
+
+Without `--format`, the command selects `console` for an interactive terminal
+and `text` for a pipe or redirect. Select a format explicitly when needed:
+
+```sh
 gh-activity-report last-week --format markdown
 gh-activity-report last-week --format json
 gh-activity-report last-week --format html > report.html
+gh-activity-report last-week --format text
 ```
 
-`text` never emits ANSI sequences. `console` uses ANSI styling when stdout is
-an interactive terminal, except when `NO_COLOR` is set or `TERM=dumb`. HTML
-output includes its own responsive light/dark styling and print rules; it does
-not require external assets.
+Set `NO_COLOR=1` or `TERM=dumb` to disable console colors.
 
-Run `gh-activity-report --help` for all options. Calendar ranges and displayed
-times use the machine's local timezone. `last-week` means the previous Monday
-through Sunday; `last-7-days` means the seven complete days before today.
+## How it works
 
-## Data source and limitations
+1. The CLI identifies the authenticated user from `GITHUB_TOKEN`.
+2. GitHub's Events API supplies recent pushes, reviews, comments, PR actions,
+   issue actions, and other activity.
+3. Pull request, commit, and issue data enrich the abbreviated event payloads.
+4. GitHub's closing-issue relationship connects PRs to issues they may close.
+5. Feature-branch pushes and merge or squash commits are associated with their
+   pull requests when possible.
 
-The tool reads [GitHub's Events API](https://docs.github.com/en/rest/activity/events).
-That is a good fit for recent standup recall because it includes pushes,
-reviews, comments, pull requests, issues, and other actions in one feed.
-GitHub notes that events can be delayed and the API only exposes a limited
-recent history. The tool warns when it reaches its pagination limit, so use it
-for recent reports rather than long-term auditing.
+The tool uses read-only GitHub API calls.
+
+## Limitations
+
+GitHub's Events API is intended for recent activity and may be delayed. The
+report warns when it reaches the available pagination limit. Use this tool as a
+standup memory aid rather than as a complete audit log or time tracker.
+
+Activity that GitHub does not associate with a pull request remains visible in
+the standalone sections instead of being guessed into a workstream.
 
 ## Development
 
-```shell
+Run the local checks with:
+
+```sh
 cargo fmt --check
 cargo test
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
+Regenerate the mocked terminal demo after changing console output:
+
+```sh
+scripts/render-demo.sh
+```
+
+The script requires ImageMagick and does not call GitHub or use
+`GITHUB_TOKEN`.
+
 ## License
 
-Licensed under the [MIT License](LICENSE).
+`gh-activity-report` is available under the [MIT License](LICENSE).
