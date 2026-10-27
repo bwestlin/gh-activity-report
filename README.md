@@ -50,12 +50,35 @@ gh-activity-report last-week
 gh-activity-report last-7-days
 ```
 
-Use an inclusive custom date range or emit machine-readable JSON:
+Use an inclusive custom date range:
 
 ```shell
 gh-activity-report --since 2026-10-01 --until 2026-10-15
-gh-activity-report last-week --format json
 ```
+
+Output defaults to colored console text when run interactively and plain text
+when piped or redirected:
+
+```shell
+gh-activity-report last-week
+gh-activity-report last-week | less
+gh-activity-report last-week > standup.txt
+```
+
+You can also select the format explicitly:
+
+```shell
+gh-activity-report last-week --format console
+gh-activity-report last-week --format text
+gh-activity-report last-week --format markdown
+gh-activity-report last-week --format json
+gh-activity-report last-week --format html > report.html
+```
+
+`text` never emits ANSI sequences. `console` uses ANSI styling when stdout is
+an interactive terminal, except when `NO_COLOR` is set or `TERM=dumb`. HTML
+output includes its own responsive light/dark styling and print rules; it does
+not require external assets.
 
 Run `gh-activity-report --help` for all options. Calendar ranges and displayed
 times use the machine's local timezone. `last-week` means the previous Monday

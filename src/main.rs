@@ -1,3 +1,4 @@
+use std::io::IsTerminal;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
@@ -27,9 +28,9 @@ struct Args {
     #[arg(long, requires = "since", value_parser = parse_date)]
     until: Option<NaiveDate>,
 
-    /// Output format.
-    #[arg(long, short, value_enum, default_value = "markdown")]
-    format: Format,
+    /// Output format. Defaults to console on a terminal and plain text when piped.
+    #[arg(long, short, value_enum)]
+    format: Option<Format>,
 
     /// GitHub personal access token.
     #[arg(long, env = "GITHUB_TOKEN", hide_env_values = true)]
@@ -40,10 +41,23 @@ struct Args {
     api_url: String,
 }
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 enum Format {
+    Console,
+    Text,
     Markdown,
     Json,
+    Html,
+}
+
+impl Format {
+    fn automatic(stdout_is_terminal: bool) -> Self {
+        if stdout_is_terminal {
+            Self::Console
+        } else {
+            Self::Text
+        }
+    }
 }
 
 fn parse_date(value: &str) -> Result<NaiveDate, String> {
@@ -63,6 +77,9 @@ async fn main() -> ExitCode {
 }
 
 async fn run(args: Args) -> Result<()> {
+    let format = args
+        .format
+        .unwrap_or_else(|| Format::automatic(std::io::stdout().is_terminal()));
     let timeframe = Timeframe::resolve(args.period, args.since, args.until)?;
     let github = GitHubClient::new(&args.token, &args.api_url)?;
     let user = github
@@ -81,9 +98,33 @@ async fn run(args: Args) -> Result<()> {
         result.may_be_truncated,
     );
 
-    match args.format {
+    match format {
+        Format::Console => print!("{}", output::text(&report, ansi_colors_available())),
+        Format::Text => print!("{}", output::text(&report, false)),
         Format::Markdown => print!("{}", output::markdown(&report)),
         Format::Json => println!("{}", serde_json::to_string_pretty(&report)?),
+        Format::Html => print!("{}", output::html(&report)),
     }
     Ok(())
+}
+
+fn ansi_colors_available() -> bool {
+    std::io::stdout().is_terminal()
+        && std::env::var_os("NO_COLOR").is_none()
+        && std::env::var("TERM").map_or(true, |term| term != "dumb")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Format;
+
+    #[test]
+    fn automatic_format_uses_console_for_a_terminal() {
+        assert_eq!(Format::automatic(true), Format::Console);
+    }
+
+    #[test]
+    fn automatic_format_uses_plain_text_for_a_pipe() {
+        assert_eq!(Format::automatic(false), Format::Text);
+    }
 }
