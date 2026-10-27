@@ -29,8 +29,8 @@ render_frame() {
   local command=${4:-'$ gh-activity-report yesterday'}
   local status_x=930
   local -a draw=(
-    -size 1200x720 "xc:#0d1117"
-    -stroke "#30363d" -strokewidth 2 -fill none -draw "roundrectangle 1,1 1198,718 14,14"
+    -size 1200x720 "xc:#ffffff"
+    -stroke "#30363d" -strokewidth 2 -fill "#0d1117" -draw "roundrectangle 1,1 1198,718 14,14"
     -stroke none -fill "#161b22" -draw "roundrectangle 2,2 1197,47 13,13 rectangle 2,28 1197,48"
     -fill "#ff5f56" -draw "circle 25,24 31,24"
     -fill "#ffbd2e" -draw "circle 46,24 52,24"
@@ -98,8 +98,8 @@ render_variant_frame() {
   local command=$2
   local format=$3
   local -a draw=(
-    -size 1200x720 "xc:#0d1117"
-    -stroke "#30363d" -strokewidth 2 -fill none -draw "roundrectangle 1,1 1198,718 14,14"
+    -size 1200x720 "xc:#ffffff"
+    -stroke "#30363d" -strokewidth 2 -fill "#0d1117" -draw "roundrectangle 1,1 1198,718 14,14"
     -stroke none -fill "#161b22" -draw "roundrectangle 2,2 1197,47 13,13 rectangle 2,28 1197,48"
     -fill "#ff5f56" -draw "circle 25,24 31,24"
     -fill "#ffbd2e" -draw "circle 46,24 52,24"
