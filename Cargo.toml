@@ -1,0 +1,21 @@
+[package]
+name = "gh-activity-report"
+version = "0.1.0"
+edition = "2024"
+description = "A standup-oriented report of a GitHub user's recent activity"
+license = "MIT"
+
+[dependencies]
+anyhow = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.5", features = ["derive", "env"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+regex = "1.12"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+urlencoding = "2.1"
+
+[dev-dependencies]
+pretty_assertions = "1.4"
+
