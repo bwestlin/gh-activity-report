@@ -100,3 +100,7 @@ cargo fmt --check
 cargo test
 cargo clippy --all-targets --all-features -- -D warnings
 ```
+
+## License
+
+Licensed under the [MIT License](LICENSE).
