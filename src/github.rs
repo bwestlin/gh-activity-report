@@ -13,6 +13,7 @@ use crate::timeframe::Timeframe;
 const PER_PAGE: usize = 100;
 // GitHub limits event timelines to 300 entries and rejects later pages.
 const MAX_PAGES: usize = 3;
+const MAX_COMMIT_PAGES: usize = 10;
 
 #[derive(Clone)]
 pub struct GitHubClient {
@@ -138,6 +139,55 @@ struct CommitSummary {
 #[derive(Debug, Deserialize)]
 struct CommitData {
     message: String,
+    author: CommitAuthor,
+}
+
+#[derive(Debug, Deserialize)]
+struct CommitAuthor {
+    date: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ContributedRepositoriesData {
+    viewer: ContributedRepositoriesViewer,
+}
+
+#[derive(Debug, Deserialize)]
+struct ContributedRepositoriesViewer {
+    #[serde(rename = "repositoriesContributedTo")]
+    repositories_contributed_to: ContributedRepositoryConnection,
+}
+
+#[derive(Debug, Deserialize)]
+struct ContributedRepositoryConnection {
+    nodes: Vec<ContributedRepository>,
+    #[serde(rename = "pageInfo")]
+    page_info: PageInfo,
+}
+
+#[derive(Debug, Deserialize)]
+struct PageInfo {
+    #[serde(rename = "hasNextPage")]
+    has_next_page: bool,
+    #[serde(rename = "endCursor")]
+    end_cursor: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct ContributedRepository {
+    #[serde(rename = "nameWithOwner")]
+    name_with_owner: String,
+    #[serde(rename = "isPrivate")]
+    is_private: bool,
+    #[serde(rename = "pushedAt")]
+    pushed_at: Option<DateTime<Utc>>,
+    #[serde(rename = "defaultBranchRef")]
+    default_branch_ref: Option<BranchName>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct BranchName {
+    name: String,
 }
 
 impl GitHubClient {
@@ -178,8 +228,8 @@ impl GitHubClient {
         timeframe: &Timeframe,
         organization: Option<&str>,
     ) -> Result<EventsResult> {
-        // TODO: Supplement the capped Events API with GraphQL ContributionsCollection
-        // and PR/issue timelines so longer or unusually busy periods remain complete.
+        // TODO: Supplement reviews, comments, and PR/issue changes with contribution
+        // and timeline queries; the current fallback recovers default-branch commits.
         let encoded_user = urlencoding::encode(user);
         let mut events = Vec::new();
         let mut exhausted = false;
@@ -212,6 +262,11 @@ impl GitHubClient {
                 break;
             }
         }
+
+        let fallback_events = self
+            .default_branch_commit_events(user, timeframe, organization)
+            .await;
+        append_missing_commit_events(&mut events, fallback_events);
 
         self.enrich_commits(&mut events).await;
         self.enrich_pull_requests(&mut events).await;
@@ -497,6 +552,159 @@ impl GitHubClient {
         summaries
     }
 
+    async fn default_branch_commit_events(
+        &self,
+        user: &str,
+        timeframe: &Timeframe,
+        organization: Option<&str>,
+    ) -> Vec<GitHubEvent> {
+        let repositories = self
+            .recently_contributed_repositories(timeframe, organization)
+            .await;
+        let mut tasks = JoinSet::new();
+        let mut events = Vec::new();
+
+        for repository in repositories {
+            let client = self.clone();
+            let user = user.to_owned();
+            let timeframe = timeframe.clone();
+            tasks.spawn(async move {
+                client
+                    .default_branch_commits(repository, user, timeframe)
+                    .await
+            });
+            if tasks.len() >= 12
+                && let Some(Ok(Ok(mut repository_events))) = tasks.join_next().await
+            {
+                events.append(&mut repository_events);
+            }
+        }
+        while let Some(result) = tasks.join_next().await {
+            if let Ok(Ok(mut repository_events)) = result {
+                events.append(&mut repository_events);
+            }
+        }
+        events
+    }
+
+    async fn recently_contributed_repositories(
+        &self,
+        timeframe: &Timeframe,
+        organization: Option<&str>,
+    ) -> Vec<ContributedRepository> {
+        let query = r#"
+            query ContributedRepositories($cursor: String) {
+              viewer {
+                repositoriesContributedTo(
+                  first: 100
+                  after: $cursor
+                  includeUserRepositories: true
+                  contributionTypes: [COMMIT]
+                ) {
+                  nodes {
+                    nameWithOwner
+                    isPrivate
+                    pushedAt
+                    defaultBranchRef { name }
+                  }
+                  pageInfo { hasNextPage endCursor }
+                }
+              }
+            }
+        "#;
+        let url = graphql_url(&self.api_url);
+        let mut cursor = None;
+        let mut repositories = Vec::new();
+
+        loop {
+            let body = json!({
+                "query": query,
+                "variables": { "cursor": cursor.clone() },
+            });
+            let Ok(response) = self
+                .post_json::<GraphQlResponse<ContributedRepositoriesData>>(&url, &body)
+                .await
+            else {
+                break;
+            };
+            let Some(data) = response.data else {
+                break;
+            };
+            let connection = data.viewer.repositories_contributed_to;
+            repositories.extend(connection.nodes);
+            if !connection.page_info.has_next_page {
+                break;
+            }
+            let Some(next_cursor) = connection.page_info.end_cursor else {
+                break;
+            };
+            cursor = Some(next_cursor);
+        }
+
+        repositories
+            .into_iter()
+            .filter(|repository| {
+                repository
+                    .pushed_at
+                    .is_some_and(|pushed_at| pushed_at >= timeframe.start)
+            })
+            .filter(|repository| {
+                organization.is_none_or(|organization| {
+                    repository
+                        .name_with_owner
+                        .split_once('/')
+                        .is_some_and(|(owner, _)| owner.eq_ignore_ascii_case(organization))
+                })
+            })
+            .collect()
+    }
+
+    async fn default_branch_commits(
+        &self,
+        repository: ContributedRepository,
+        user: String,
+        timeframe: Timeframe,
+    ) -> Result<Vec<GitHubEvent>> {
+        let Some(branch) = repository.default_branch_ref.map(|branch| branch.name) else {
+            return Ok(Vec::new());
+        };
+        let Some((owner, repo)) = repository.name_with_owner.split_once('/') else {
+            return Ok(Vec::new());
+        };
+        let mut events = Vec::new();
+
+        for page in 1..=MAX_COMMIT_PAGES {
+            let url = format!(
+                "{}/repos/{}/{}/commits?sha={}&author={}&since={}&until={}&per_page={PER_PAGE}&page={page}",
+                self.api_url,
+                urlencoding::encode(owner),
+                urlencoding::encode(repo),
+                urlencoding::encode(&branch),
+                urlencoding::encode(&user),
+                urlencoding::encode(&timeframe.start.to_rfc3339()),
+                urlencoding::encode(&timeframe.end.to_rfc3339()),
+            );
+            let commits = self.get_json::<Vec<CommitSummary>>(&url).await?;
+            let page_len = commits.len();
+            for commit in commits
+                .into_iter()
+                .filter(|commit| timeframe.contains(commit.commit.author.date))
+            {
+                events.push(commit_event(
+                    &repository.name_with_owner,
+                    &branch,
+                    &user,
+                    repository.is_private,
+                    commit,
+                ));
+            }
+            if page_len < PER_PAGE {
+                break;
+            }
+        }
+        Ok(events)
+    }
+
     /// Push event payloads may omit their commit list. Resolve the pushed head
     /// so a single-commit push can show its message instead of only its SHA.
     async fn enrich_commits(&self, events: &mut [GitHubEvent]) {
@@ -635,6 +843,83 @@ fn matching_events(
             event_is_in_scope(event, user, organization) && timeframe.contains(event.created_at)
         })
         .collect()
+}
+
+fn commit_event(
+    repository: &str,
+    branch: &str,
+    user: &str,
+    private: bool,
+    commit: CommitSummary,
+) -> GitHubEvent {
+    let CommitSummary {
+        sha,
+        html_url,
+        commit: CommitData { message, author },
+    } = commit;
+    let created_at = author.date;
+    GitHubEvent {
+        id: format!("contribution-commit-{sha}"),
+        kind: "PushEvent".to_owned(),
+        actor: Actor {
+            login: user.to_owned(),
+        },
+        repo: Repository {
+            name: repository.to_owned(),
+        },
+        payload: json!({
+            "ref": format!("refs/heads/{branch}"),
+            "head": sha,
+            "size": 1,
+            "distinct_size": 1,
+            "commits": [{
+                "sha": sha,
+                "message": message,
+            }],
+            "_activity_report_commit": {
+                "sha": sha,
+                "message": message,
+                "html_url": html_url,
+            },
+        }),
+        public: !private,
+        created_at,
+    }
+}
+
+fn append_missing_commit_events(events: &mut Vec<GitHubEvent>, fallback_events: Vec<GitHubEvent>) {
+    let mut seen = BTreeSet::new();
+    for event in events.iter() {
+        collect_commit_shas(event, &mut seen);
+    }
+    for event in fallback_events {
+        let mut shas = BTreeSet::new();
+        collect_commit_shas(&event, &mut shas);
+        if shas.iter().any(|sha| seen.contains(sha)) {
+            continue;
+        }
+        seen.extend(shas);
+        events.push(event);
+    }
+}
+
+fn collect_commit_shas(event: &GitHubEvent, shas: &mut BTreeSet<String>) {
+    if event.kind != "PushEvent" {
+        return;
+    }
+    if let Some(head) = event.payload.get("head").and_then(Value::as_str)
+        && !head.is_empty()
+    {
+        shas.insert(head.to_owned());
+    }
+    if let Some(commits) = event.payload.get("commits").and_then(Value::as_array) {
+        shas.extend(
+            commits
+                .iter()
+                .filter_map(|commit| commit.get("sha").and_then(Value::as_str))
+                .map(str::to_owned),
+        );
+    }
 }
 
 fn event_is_in_scope(event: &GitHubEvent, user: &str, organization: Option<&str>) -> bool {
@@ -809,12 +1094,13 @@ fn pull_number_from_url(url: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::{
-        Actor, GitHubEvent, Repository, matching_events, pull_number_from_commit_message,
-        pull_number_from_url, related_issue_references, timeline_may_be_truncated,
+        Actor, GitHubEvent, Repository, append_missing_commit_events, matching_events,
+        pull_number_from_commit_message, pull_number_from_url, related_issue_references,
+        timeline_may_be_truncated,
     };
     use crate::timeframe::Timeframe;
     use chrono::{NaiveDate, TimeZone, Utc};
-    use serde_json::Value;
+    use serde_json::{Value, json};
 
     fn event(id: &str, created_at: chrono::DateTime<Utc>) -> GitHubEvent {
         GitHubEvent {
@@ -830,6 +1116,16 @@ mod tests {
             public: false,
             created_at,
         }
+    }
+
+    fn commit_event(id: &str, sha: &str) -> GitHubEvent {
+        let mut event = event(id, Utc.with_ymd_and_hms(2026, 10, 28, 12, 0, 0).unwrap());
+        event.payload = json!({
+            "ref": "refs/heads/main",
+            "head": sha,
+            "commits": [{"sha": sha, "message": "Test commit"}],
+        });
+        event
     }
 
     fn yesterday() -> Timeframe {
@@ -874,6 +1170,21 @@ mod tests {
 
         assert_eq!(matching.len(), 1);
         assert_eq!(matching[0].id, "acme");
+    }
+
+    #[test]
+    fn contribution_fallback_only_adds_missing_commit_shas() {
+        let mut events = vec![commit_event("events-api", "existing")];
+        let fallback = vec![
+            commit_event("duplicate", "existing"),
+            commit_event("missing", "missing"),
+        ];
+
+        append_missing_commit_events(&mut events, fallback);
+
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].id, "events-api");
+        assert_eq!(events[1].id, "missing");
     }
 
     #[test]

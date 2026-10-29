@@ -193,11 +193,13 @@ JSON output always remains complete so scripts do not silently lose fields.
 2. GitHub's Events API supplies recent pushes, reviews, comments, PR actions,
    issue actions, and other activity, optionally filtered by repository owner
    with `--org`.
-3. Pull request, commit, and issue data enrich the abbreviated event payloads.
-4. GitHub's closing-issue relationship connects PRs to issues they may close.
-5. Feature-branch pushes and merge or squash commits are associated with their
+3. A GraphQL contribution fallback discovers recently pushed repositories and
+   supplements missing default-branch commits without duplicating event data.
+4. Pull request, commit, and issue data enrich the abbreviated event payloads.
+5. GitHub's closing-issue relationship connects PRs to issues they may close.
+6. Feature-branch pushes and merge or squash commits are associated with their
    pull requests when possible.
-6. Remaining pushes are grouped by repository and branch instead of being
+7. Remaining pushes are grouped by repository and branch instead of being
    folded into miscellaneous activity.
 
 The tool uses read-only GitHub API calls.
@@ -205,8 +207,11 @@ The tool uses read-only GitHub API calls.
 ## Limitations
 
 GitHub's Events API is intended for recent activity and may be delayed. The
-report warns when it reaches the available pagination limit. Use this tool as a
-standup memory aid rather than as a complete audit log or time tracker.
+report warns when its pagination limit overlaps the requested timeframe. The
+contribution fallback recovers authored commits reachable from a repository's
+default branch, but feature-branch-only commits, reviews, and comments still
+depend on Events. Use this tool as a standup memory aid rather than as a
+complete audit log or time tracker.
 
 Activity that GitHub does not associate with a pull request remains visible in
 the branch or standalone sections instead of being guessed into a pull-request
