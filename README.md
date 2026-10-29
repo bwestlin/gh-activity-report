@@ -82,7 +82,8 @@ list of repositories.
 
 | Section | What it captures |
 | --- | --- |
-| Pull requests | Status, ownership, branches, and activity |
+| Your pull requests | Status, branches, and activity on PRs you authored |
+| Reviewed pull requests | Reviews and other contributions to others' PRs |
 | Commits | Pushes to PR branches and merge or squash commits |
 | Reviews | Approvals, comments, and change requests by the token owner |
 | Comments | Issue and review comments, with direct links and short excerpts |
@@ -90,11 +91,12 @@ list of repositories.
 | Branches without PRs | Commits grouped by branch when no pull request exists |
 | Standalone work | Issues and activity not associated with a pull request |
 
-Pull requests with the most activity are shown first. Inside each pull request,
-the report presents commits, reviews, comments, PR progress, related issue
-progress, and other events in that order. Pushed branches without pull requests
-follow as their own ranked workstreams, before standalone issues and other
-activity.
+Your pull requests are shown separately from pull requests you reviewed or
+otherwise contributed to. Within each section, pull requests with the most
+activity are shown first. Inside each pull request, the report presents commits,
+reviews, comments, PR progress, related issue progress, and other events in that
+order. Pushed branches without pull requests follow as their own ranked
+workstreams, before standalone issues and other activity.
 
 ## Example output
 
@@ -106,12 +108,14 @@ GitHub progress for @octocat
 Yesterday (2026-10-26) · 3 pull requests · 1 branch without PR
 · 2 issues · 16 activity signals
 
-PULL REQUESTS MOVED FORWARD
+YOUR PULL REQUESTS MOVED FORWARD
 1. acme/web#184 Cache authenticated API responses — Merged
    2 commits, 1 review, 2 comments, 2 PR updates
-2. acme/api#77 Add request correlation IDs — Open
-   1 commit, 1 review, 1 comment
-3. acme/design#42 Refresh settings navigation — Draft
+2. acme/design#42 Refresh settings navigation — Draft
+
+PULL REQUESTS YOU REVIEWED OR CONTRIBUTED TO
+1. acme/api#77 Add request correlation IDs — Open
+   1 review, 1 comment
 
 BRANCHES WITHOUT PULL REQUESTS
 

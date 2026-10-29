@@ -83,8 +83,25 @@ fn write_pull_requests(out: &mut String, report: &Report) {
     if report.pull_requests.is_empty() {
         return;
     }
-    writeln!(out, "\n## Pull requests moved forward\n").unwrap();
-    for (index, pull) in report.pull_requests.iter().enumerate() {
+    let (authored, contributed) = grouped_pull_requests(report);
+    write_markdown_pull_request_group(out, "Your pull requests moved forward", &authored);
+    write_markdown_pull_request_group(
+        out,
+        "Pull requests you reviewed or contributed to",
+        &contributed,
+    );
+}
+
+fn write_markdown_pull_request_group(
+    out: &mut String,
+    heading: &str,
+    pull_requests: &[&PullRequestWork],
+) {
+    if pull_requests.is_empty() {
+        return;
+    }
+    writeln!(out, "\n## {heading}\n").unwrap();
+    for (index, pull) in pull_requests.iter().enumerate() {
         writeln!(
             out,
             "{}. [{}#{} — {}]({}) — **{}** — {}",
@@ -99,10 +116,10 @@ fn write_pull_requests(out: &mut String, report: &Report) {
         .unwrap();
     }
 
-    for (index, pull) in report.pull_requests.iter().enumerate() {
+    for (index, pull) in pull_requests.iter().enumerate() {
         writeln!(
             out,
-            "\n## {}. [{}]({})\n",
+            "\n### {}. [{}]({})\n",
             index + 1,
             escape_link_text(&pull.title),
             pull.html_url
@@ -128,7 +145,7 @@ fn write_pull_requests(out: &mut String, report: &Report) {
         writeln!(out, "\n\n**Progress:** {}", count_summary(pull)).unwrap();
 
         if !pull.related_issues.is_empty() {
-            writeln!(out, "\n### Related issues\n").unwrap();
+            writeln!(out, "\n#### Related issues\n").unwrap();
             for issue in &pull.related_issues {
                 writeln!(
                     out,
@@ -170,12 +187,19 @@ fn write_pull_requests(out: &mut String, report: &Report) {
                 continue;
             }
             let count = pull.counts.get(&category).copied().unwrap_or(0);
-            writeln!(out, "\n### {} ({count})\n", category.label()).unwrap();
+            writeln!(out, "\n#### {} ({count})\n", category.label()).unwrap();
             for activity in activities {
                 write_activity(out, activity, false);
             }
         }
     }
+}
+
+fn grouped_pull_requests(report: &Report) -> (Vec<&PullRequestWork>, Vec<&PullRequestWork>) {
+    report
+        .pull_requests
+        .iter()
+        .partition(|pull| pull.relationship == "authored")
 }
 
 fn write_standalone_issues(out: &mut String, report: &Report) {
@@ -267,94 +291,19 @@ pub fn text(report: &Report, colors: bool) -> String {
     }
 
     if !report.pull_requests.is_empty() {
-        writeln!(out, "\n{}", style.section("PULL REQUESTS MOVED FORWARD")).unwrap();
-        for (index, pull) in report.pull_requests.iter().enumerate() {
-            writeln!(
-                out,
-                "{}. {} {} — {}",
-                index + 1,
-                style.link(&format!("{}#{}", pull.repository, pull.number)),
-                pull.title,
-                style.status(&pull.status)
-            )
-            .unwrap();
-            writeln!(out, "   {}", style.dim(&count_summary(pull))).unwrap();
-        }
-
-        for (index, pull) in report.pull_requests.iter().enumerate() {
-            writeln!(
-                out,
-                "\n{}",
-                style.heading(&format!("{}. {}", index + 1, pull.title))
-            )
-            .unwrap();
-            write!(
-                out,
-                "{} · {} · {}",
-                style.link(&format!("{}#{}", pull.repository, pull.number)),
-                style.status(&pull.status),
-                if pull.relationship == "authored" {
-                    "authored by you"
-                } else {
-                    "contributed to"
-                }
-            )
-            .unwrap();
-            if let (Some(head), Some(base)) = (&pull.head, &pull.base) {
-                write!(out, " · {head} -> {base}").unwrap();
-            }
-            writeln!(out, "\nProgress: {}", count_summary(pull)).unwrap();
-            writeln!(out, "{}", style.dim(&pull.html_url)).unwrap();
-
-            if !pull.related_issues.is_empty() {
-                writeln!(out, "\n{}", style.subheading("Related issues")).unwrap();
-                for issue in &pull.related_issues {
-                    let relationship = if issue.relationship == "closes" {
-                        "Closes"
-                    } else {
-                        "Related"
-                    };
-                    writeln!(
-                        out,
-                        "  - {}: {}#{} — {} — {}",
-                        style.bold(relationship),
-                        issue.repository,
-                        issue.number,
-                        issue.title,
-                        style.status(&issue.state)
-                    )
-                    .unwrap();
-                    writeln!(out, "    {}", style.dim(&issue.html_url)).unwrap();
-                    for activity in &issue.activities {
-                        write_text_activity(&mut out, activity, false, &style, 4);
-                    }
-                }
-            }
-
-            for category in Category::ALL {
-                if category == Category::Issues {
-                    continue;
-                }
-                let activities: Vec<_> = pull
-                    .activities
-                    .iter()
-                    .filter(|activity| activity.category == category)
-                    .collect();
-                if activities.is_empty() {
-                    continue;
-                }
-                let count = pull.counts.get(&category).copied().unwrap_or(0);
-                writeln!(
-                    out,
-                    "\n{}",
-                    style.subheading(&format!("{} ({count})", category.label()))
-                )
-                .unwrap();
-                for activity in activities {
-                    write_text_activity(&mut out, activity, false, &style, 2);
-                }
-            }
-        }
+        let (authored, contributed) = grouped_pull_requests(report);
+        write_text_pull_request_group(
+            &mut out,
+            "YOUR PULL REQUESTS MOVED FORWARD",
+            &authored,
+            &style,
+        );
+        write_text_pull_request_group(
+            &mut out,
+            "PULL REQUESTS YOU REVIEWED OR CONTRIBUTED TO",
+            &contributed,
+            &style,
+        );
     }
 
     if !report.branches.is_empty() {
@@ -419,6 +368,105 @@ pub fn text(report: &Report, colors: bool) -> String {
         .unwrap();
     }
     out
+}
+
+fn write_text_pull_request_group(
+    out: &mut String,
+    heading: &str,
+    pull_requests: &[&PullRequestWork],
+    style: &Ansi,
+) {
+    if pull_requests.is_empty() {
+        return;
+    }
+    writeln!(out, "\n{}", style.section(heading)).unwrap();
+    for (index, pull) in pull_requests.iter().enumerate() {
+        writeln!(
+            out,
+            "{}. {} {} — {}",
+            index + 1,
+            style.link(&format!("{}#{}", pull.repository, pull.number)),
+            pull.title,
+            style.status(&pull.status)
+        )
+        .unwrap();
+        writeln!(out, "   {}", style.dim(&count_summary(pull))).unwrap();
+    }
+
+    for (index, pull) in pull_requests.iter().enumerate() {
+        writeln!(
+            out,
+            "\n{}",
+            style.heading(&format!("{}. {}", index + 1, pull.title))
+        )
+        .unwrap();
+        write!(
+            out,
+            "{} · {} · {}",
+            style.link(&format!("{}#{}", pull.repository, pull.number)),
+            style.status(&pull.status),
+            if pull.relationship == "authored" {
+                "authored by you"
+            } else {
+                "contributed to"
+            }
+        )
+        .unwrap();
+        if let (Some(head), Some(base)) = (&pull.head, &pull.base) {
+            write!(out, " · {head} -> {base}").unwrap();
+        }
+        writeln!(out, "\nProgress: {}", count_summary(pull)).unwrap();
+        writeln!(out, "{}", style.dim(&pull.html_url)).unwrap();
+
+        if !pull.related_issues.is_empty() {
+            writeln!(out, "\n{}", style.subheading("Related issues")).unwrap();
+            for issue in &pull.related_issues {
+                let relationship = if issue.relationship == "closes" {
+                    "Closes"
+                } else {
+                    "Related"
+                };
+                writeln!(
+                    out,
+                    "  - {}: {}#{} — {} — {}",
+                    style.bold(relationship),
+                    issue.repository,
+                    issue.number,
+                    issue.title,
+                    style.status(&issue.state)
+                )
+                .unwrap();
+                writeln!(out, "    {}", style.dim(&issue.html_url)).unwrap();
+                for activity in &issue.activities {
+                    write_text_activity(out, activity, false, style, 4);
+                }
+            }
+        }
+
+        for category in Category::ALL {
+            if category == Category::Issues {
+                continue;
+            }
+            let activities: Vec<_> = pull
+                .activities
+                .iter()
+                .filter(|activity| activity.category == category)
+                .collect();
+            if activities.is_empty() {
+                continue;
+            }
+            let count = pull.counts.get(&category).copied().unwrap_or(0);
+            writeln!(
+                out,
+                "\n{}",
+                style.subheading(&format!("{} ({count})", category.label()))
+            )
+            .unwrap();
+            for activity in activities {
+                write_text_activity(out, activity, false, style, 2);
+            }
+        }
+    }
 }
 
 fn write_text_branch_activity(out: &mut String, activity: &Activity, style: &Ansi, indent: usize) {
@@ -586,8 +634,30 @@ fn write_html_pull_requests(out: &mut String, report: &Report) {
     if report.pull_requests.is_empty() {
         return;
     }
-    out.push_str("<section><h2>Pull requests moved forward</h2><ol class=\"summary-list\">\n");
-    for pull in &report.pull_requests {
+    let (authored, contributed) = grouped_pull_requests(report);
+    write_html_pull_request_group(out, "Your pull requests moved forward", &authored);
+    write_html_pull_request_group(
+        out,
+        "Pull requests you reviewed or contributed to",
+        &contributed,
+    );
+}
+
+fn write_html_pull_request_group(
+    out: &mut String,
+    heading: &str,
+    pull_requests: &[&PullRequestWork],
+) {
+    if pull_requests.is_empty() {
+        return;
+    }
+    writeln!(
+        out,
+        "<section><h2>{}</h2><ol class=\"summary-list\">",
+        escape_html(heading)
+    )
+    .unwrap();
+    for pull in pull_requests {
         writeln!(
             out,
             "<li><a href=\"{}\"><code>{}#{}</code> — {}</a> <span class=\"status {}\">{}</span><small>{}</small></li>",
@@ -603,7 +673,7 @@ fn write_html_pull_requests(out: &mut String, report: &Report) {
     }
     out.push_str("</ol></section>\n");
 
-    for (index, pull) in report.pull_requests.iter().enumerate() {
+    for (index, pull) in pull_requests.iter().enumerate() {
         writeln!(
             out,
             "<article class=\"pull-request\"><h2><span>{}.</span> <a href=\"{}\">{}</a></h2>",
@@ -977,5 +1047,66 @@ mod tests {
         );
         assert!(!text(&report, false).contains("\x1b["));
         assert!(text(&report, true).contains("\x1b["));
+    }
+
+    #[test]
+    fn authored_and_reviewed_pull_requests_have_separate_sections() {
+        let pull_request = |number, title: &str, author: &str| {
+            json!({
+                "number": number,
+                "title": title,
+                "html_url": format!("https://github.com/acme/api/pull/{number}"),
+                "state": "open",
+                "draft": false,
+                "merged_at": null,
+                "author": author,
+                "head": "feature",
+                "base": "main",
+                "related_issues": []
+            })
+        };
+        let event = |id: &str, number, title: &str, author: &str, hour| GitHubEvent {
+            id: id.to_owned(),
+            kind: "PullRequestReviewEvent".to_owned(),
+            actor: Actor {
+                login: "octocat".to_owned(),
+            },
+            repo: Repository {
+                name: "acme/api".to_owned(),
+            },
+            payload: json!({
+                "_activity_report_pr": pull_request(number, title, author),
+                "pull_request": {"number": number},
+                "review": {"state": "approved"}
+            }),
+            public: true,
+            created_at: Utc.with_ymd_and_hms(2026, 10, 26, hour, 0, 0).unwrap(),
+        };
+        let report = build_report(
+            "octocat".into(),
+            "yesterday".into(),
+            "2026-10-26".into(),
+            vec![
+                event("own", 1, "My merged work", "octocat", 9),
+                event("reviewed", 2, "Someone else's work", "hubot", 10),
+            ],
+            false,
+        );
+
+        let markdown = markdown(&report);
+        assert!(markdown.contains("## Your pull requests moved forward"));
+        assert!(markdown.contains("## Pull requests you reviewed or contributed to"));
+        assert!(
+            markdown.find("My merged work").unwrap()
+                < markdown.find("Someone else's work").unwrap()
+        );
+
+        let text = text(&report, false);
+        assert!(text.contains("YOUR PULL REQUESTS MOVED FORWARD"));
+        assert!(text.contains("PULL REQUESTS YOU REVIEWED OR CONTRIBUTED TO"));
+
+        let html = html(&report);
+        assert!(html.contains("Your pull requests moved forward"));
+        assert!(html.contains("Pull requests you reviewed or contributed to"));
     }
 }
