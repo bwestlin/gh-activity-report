@@ -4,7 +4,7 @@ use std::process::ExitCode;
 use anyhow::{Context, Result};
 use chrono::NaiveDate;
 use clap::{Parser, ValueEnum};
-use gh_activity_report::activity::build_report;
+use gh_activity_report::activity::build_report_for_organization;
 use gh_activity_report::github::GitHubClient;
 use gh_activity_report::output;
 use gh_activity_report::timeframe::{Period, Timeframe};
@@ -31,6 +31,10 @@ struct Args {
     /// Output format. Defaults to console on a terminal and plain text when piped.
     #[arg(long, short, value_enum)]
     format: Option<Format>,
+
+    /// Only include activity in repositories owned by this organization.
+    #[arg(long = "org", visible_alias = "organization", value_name = "ORG", value_parser = parse_organization)]
+    organization: Option<String>,
 
     /// GitHub personal access token.
     #[arg(long, env = "GITHUB_TOKEN", hide_env_values = true)]
@@ -65,6 +69,17 @@ fn parse_date(value: &str) -> Result<NaiveDate, String> {
         .map_err(|_| format!("invalid date '{value}'; expected YYYY-MM-DD"))
 }
 
+fn parse_organization(value: &str) -> Result<String, String> {
+    let organization = value.trim().strip_prefix('@').unwrap_or(value.trim());
+    if organization.is_empty()
+        || organization.contains('/')
+        || organization.chars().any(char::is_whitespace)
+    {
+        return Err(format!("invalid organization '{value}'"));
+    }
+    Ok(organization.to_owned())
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     match run(Args::parse()).await {
@@ -87,11 +102,12 @@ async fn run(args: Args) -> Result<()> {
         .await
         .context("could not identify the token owner")?;
     let result = github
-        .events(&user, &timeframe)
+        .events(&user, &timeframe, args.organization.as_deref())
         .await
         .with_context(|| format!("could not load activity for @{user}"))?;
-    let report = build_report(
+    let report = build_report_for_organization(
         user,
+        args.organization,
         timeframe.label.clone(),
         timeframe.display_dates(),
         result.events,
@@ -116,7 +132,7 @@ fn ansi_colors_available() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::Format;
+    use super::{Format, parse_organization};
 
     #[test]
     fn automatic_format_uses_console_for_a_terminal() {
@@ -126,5 +142,15 @@ mod tests {
     #[test]
     fn automatic_format_uses_plain_text_for_a_pipe() {
         assert_eq!(Format::automatic(false), Format::Text);
+    }
+
+    #[test]
+    fn organization_accepts_an_optional_at_prefix() {
+        assert_eq!(parse_organization("@Acme").unwrap(), "Acme");
+    }
+
+    #[test]
+    fn organization_rejects_repository_paths() {
+        assert!(parse_organization("acme/api").is_err());
     }
 }

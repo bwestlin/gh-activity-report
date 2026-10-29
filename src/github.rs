@@ -172,7 +172,12 @@ impl GitHubClient {
         Ok(self.get_json::<Viewer>(&url).await?.login)
     }
 
-    pub async fn events(&self, user: &str, timeframe: &Timeframe) -> Result<EventsResult> {
+    pub async fn events(
+        &self,
+        user: &str,
+        timeframe: &Timeframe,
+        organization: Option<&str>,
+    ) -> Result<EventsResult> {
         // TODO: Supplement the capped Events API with GraphQL ContributionsCollection
         // and PR/issue timelines so longer or unusually busy periods remain complete.
         let encoded_user = urlencoding::encode(user);
@@ -194,13 +199,13 @@ impl GitHubClient {
             let page_len = page_events.len();
             for event in page_events
                 .iter()
-                .filter(|event| event.actor.login.eq_ignore_ascii_case(user))
+                .filter(|event| event_is_in_scope(event, user, organization))
             {
                 oldest_event_at = Some(
                     oldest_event_at.map_or(event.created_at, |oldest| oldest.min(event.created_at)),
                 );
             }
-            events.extend(matching_events(page_events, user, timeframe));
+            events.extend(matching_events(page_events, user, timeframe, organization));
 
             if page_len < PER_PAGE {
                 exhausted = true;
@@ -620,15 +625,27 @@ fn matching_events(
     page_events: Vec<GitHubEvent>,
     user: &str,
     timeframe: &Timeframe,
+    organization: Option<&str>,
 ) -> Vec<GitHubEvent> {
     // GitHub's events feed is not guaranteed to be strictly chronological.
     // Filter the complete page instead of stopping at the first old event.
     page_events
         .into_iter()
         .filter(|event| {
-            event.actor.login.eq_ignore_ascii_case(user) && timeframe.contains(event.created_at)
+            event_is_in_scope(event, user, organization) && timeframe.contains(event.created_at)
         })
         .collect()
+}
+
+fn event_is_in_scope(event: &GitHubEvent, user: &str, organization: Option<&str>) -> bool {
+    event.actor.login.eq_ignore_ascii_case(user)
+        && organization.is_none_or(|organization| {
+            event
+                .repo
+                .name
+                .split_once('/')
+                .is_some_and(|(owner, _)| owner.eq_ignore_ascii_case(organization))
+        })
 }
 
 fn timeline_may_be_truncated(
@@ -839,10 +856,24 @@ mod tests {
             ),
         ];
 
-        let matching = matching_events(events, "octocat", &timeframe);
+        let matching = matching_events(events, "octocat", &timeframe, None);
 
         assert_eq!(matching.len(), 1);
         assert_eq!(matching[0].id, "in-range");
+    }
+
+    #[test]
+    fn filters_events_by_repository_organization() {
+        let timeframe = yesterday();
+        let created_at = Utc.with_ymd_and_hms(2026, 10, 28, 12, 0, 0).unwrap();
+        let mut other = event("other", created_at);
+        other.repo.name = "other/api".to_owned();
+        let events = vec![event("acme", created_at), other];
+
+        let matching = matching_events(events, "octocat", &timeframe, Some("ACME"));
+
+        assert_eq!(matching.len(), 1);
+        assert_eq!(matching[0].id, "acme");
     }
 
     #[test]

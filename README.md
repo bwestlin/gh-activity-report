@@ -62,9 +62,15 @@ gh-activity-report last-week
 # Report the current week through today.
 gh-activity-report this-week
 
+# Only include activity in repositories owned by an organization.
+gh-activity-report yesterday --org acme
+
 # Use an inclusive custom date range.
 gh-activity-report --since 2026-10-01 --until 2026-10-15
 ```
+
+`--organization` is accepted as an alias for `--org`. Organization matching is
+case-insensitive, and an optional `@` prefix is accepted.
 
 Interactive output is colorized automatically. Pipes and redirects receive
 plain text without ANSI escape sequences:
@@ -165,7 +171,8 @@ Set `NO_COLOR=1` or `TERM=dumb` to disable console colors.
 
 1. The CLI identifies the authenticated user from `GITHUB_TOKEN`.
 2. GitHub's Events API supplies recent pushes, reviews, comments, PR actions,
-   issue actions, and other activity.
+   issue actions, and other activity, optionally filtered by repository owner
+   with `--org`.
 3. Pull request, commit, and issue data enrich the abbreviated event payloads.
 4. GitHub's closing-issue relationship connects PRs to issues they may close.
 5. Feature-branch pushes and merge or squash commits are associated with their

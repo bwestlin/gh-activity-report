@@ -116,6 +116,8 @@ pub struct BranchWork {
 #[derive(Clone, Debug, Serialize)]
 pub struct Report {
     pub user: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub organization: Option<String>,
     pub period: String,
     pub dates: String,
     pub total: usize,
@@ -150,6 +152,17 @@ struct IssueMetadata {
 
 pub fn build_report(
     user: String,
+    period: String,
+    dates: String,
+    events: Vec<GitHubEvent>,
+    may_be_truncated: bool,
+) -> Report {
+    build_report_for_organization(user, None, period, dates, events, may_be_truncated)
+}
+
+pub fn build_report_for_organization(
+    user: String,
+    organization: Option<String>,
     period: String,
     dates: String,
     events: Vec<GitHubEvent>,
@@ -305,6 +318,7 @@ pub fn build_report(
 
     Report {
         user,
+        organization,
         period,
         dates,
         total,

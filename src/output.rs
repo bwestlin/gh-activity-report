@@ -17,7 +17,7 @@ pub fn markdown(report: &Report) -> String {
         .len();
     let issue_count = related_issue_count + report.issues.len();
 
-    writeln!(out, "# GitHub progress for @{}", report.user).unwrap();
+    writeln!(out, "# GitHub progress for {}", report_subject(report)).unwrap();
     writeln!(
         out,
         "\n**{}** ({}) — {} pull requests, {}, and {} issues moved forward ({} activity signals)",
@@ -266,7 +266,7 @@ pub fn text(report: &Report, colors: bool) -> String {
     writeln!(
         out,
         "{}",
-        style.heading(&format!("GitHub progress for @{}", report.user))
+        style.heading(&format!("GitHub progress for {}", report_subject(report)))
     )
     .unwrap();
     writeln!(
@@ -568,17 +568,18 @@ impl Ansi {
 pub fn html(report: &Report) -> String {
     let mut out = String::new();
     let issue_count = related_issue_count(report) + report.issues.len();
+    let subject = report_subject(report);
     write!(
         out,
-        "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<title>GitHub progress for @{}</title>\n<style>{}</style>\n</head>\n<body>\n<main>\n",
-        escape_html(&report.user),
+        "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<title>GitHub progress for {}</title>\n<style>{}</style>\n</head>\n<body>\n<main>\n",
+        escape_html(&subject),
         HTML_CSS
     )
     .unwrap();
     writeln!(
         out,
-        "<header><h1>GitHub progress for <span>@{}</span></h1><p><strong>{}</strong> ({}) · {} pull requests · {} · {} issues · {} activity signals</p></header>",
-        escape_html(&report.user),
+        "<header><h1>GitHub progress for <span>{}</span></h1><p><strong>{}</strong> ({}) · {} pull requests · {} · {} issues · {} activity signals</p></header>",
+        escape_html(&subject),
         escape_html(&capitalize(&report.period)),
         escape_html(&report.dates),
         report.pull_requests.len(),
@@ -954,10 +955,17 @@ fn capitalize(value: &str) -> String {
         .unwrap_or_default()
 }
 
+fn report_subject(report: &Report) -> String {
+    match &report.organization {
+        Some(organization) => format!("@{} in @{}", report.user, organization),
+        None => format!("@{}", report.user),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::activity::build_report;
+    use crate::activity::{build_report, build_report_for_organization};
     use crate::github::{Actor, GitHubEvent, Repository};
     use chrono::{TimeZone, Utc};
     use serde_json::json;
@@ -1034,6 +1042,22 @@ mod tests {
         assert!(output.starts_with("<!doctype html>"));
         assert!(output.contains("@octo&lt;&amp;cat"));
         assert!(!output.contains("@octo<&cat"));
+    }
+
+    #[test]
+    fn organization_scope_appears_in_every_human_readable_format() {
+        let report = build_report_for_organization(
+            "octocat".into(),
+            Some("acme".into()),
+            "yesterday".into(),
+            "2026-10-26".into(),
+            vec![],
+            false,
+        );
+
+        assert!(markdown(&report).contains("GitHub progress for @octocat in @acme"));
+        assert!(text(&report, false).contains("GitHub progress for @octocat in @acme"));
+        assert!(html(&report).contains("GitHub progress for <span>@octocat in @acme</span>"));
     }
 
     #[test]
