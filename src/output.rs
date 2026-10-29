@@ -3,7 +3,17 @@ use std::fmt::Write;
 
 use crate::activity::{Activity, Category, PullRequestWork, Report, local_time};
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DetailLevel {
+    Summary,
+    Full,
+}
+
 pub fn markdown(report: &Report) -> String {
+    markdown_with_detail(report, DetailLevel::Full)
+}
+
+pub fn markdown_with_detail(report: &Report, detail: DetailLevel) -> String {
     let mut out = String::new();
     let related_issue_count = report
         .pull_requests
@@ -37,10 +47,10 @@ pub fn markdown(report: &Report) -> String {
     {
         writeln!(out, "\nNo GitHub activity found in this timeframe.").unwrap();
     } else {
-        write_pull_requests(&mut out, report);
-        write_branches(&mut out, report);
-        write_standalone_issues(&mut out, report);
-        write_other_activity(&mut out, report);
+        write_pull_requests(&mut out, report, detail);
+        write_branches(&mut out, report, detail);
+        write_standalone_issues(&mut out, report, detail);
+        write_other_activity(&mut out, report, detail);
     }
 
     if report.may_be_truncated {
@@ -49,7 +59,7 @@ pub fn markdown(report: &Report) -> String {
     out
 }
 
-fn write_branches(out: &mut String, report: &Report) {
+fn write_branches(out: &mut String, report: &Report, detail: DetailLevel) {
     if report.branches.is_empty() {
         return;
     }
@@ -64,8 +74,10 @@ fn write_branches(out: &mut String, report: &Report) {
             commit_count(branch.total)
         )
         .unwrap();
-        for activity in &branch.activities {
-            write_branch_activity(out, activity);
+        if detail == DetailLevel::Full {
+            for activity in &branch.activities {
+                write_branch_activity(out, activity);
+            }
         }
         out.push('\n');
     }
@@ -79,16 +91,17 @@ fn write_branch_activity(out: &mut String, activity: &Activity) {
     writeln!(out, "- {summary} _({})_", local_time(activity.occurred_at)).unwrap();
 }
 
-fn write_pull_requests(out: &mut String, report: &Report) {
+fn write_pull_requests(out: &mut String, report: &Report, detail: DetailLevel) {
     if report.pull_requests.is_empty() {
         return;
     }
     let (authored, contributed) = grouped_pull_requests(report);
-    write_markdown_pull_request_group(out, "Your pull requests moved forward", &authored);
+    write_markdown_pull_request_group(out, "Your pull requests moved forward", &authored, detail);
     write_markdown_pull_request_group(
         out,
         "Pull requests you reviewed or contributed to",
         &contributed,
+        detail,
     );
 }
 
@@ -96,6 +109,7 @@ fn write_markdown_pull_request_group(
     out: &mut String,
     heading: &str,
     pull_requests: &[&PullRequestWork],
+    detail: DetailLevel,
 ) {
     if pull_requests.is_empty() {
         return;
@@ -114,6 +128,10 @@ fn write_markdown_pull_request_group(
             count_summary(pull)
         )
         .unwrap();
+    }
+
+    if detail == DetailLevel::Summary {
+        return;
     }
 
     for (index, pull) in pull_requests.iter().enumerate() {
@@ -202,7 +220,7 @@ fn grouped_pull_requests(report: &Report) -> (Vec<&PullRequestWork>, Vec<&PullRe
         .partition(|pull| pull.relationship == "authored")
 }
 
-fn write_standalone_issues(out: &mut String, report: &Report) {
+fn write_standalone_issues(out: &mut String, report: &Report, detail: DetailLevel) {
     if report.issues.is_empty() {
         return;
     }
@@ -218,18 +236,24 @@ fn write_standalone_issues(out: &mut String, report: &Report) {
             capitalize(&issue.state)
         )
         .unwrap();
-        for activity in &issue.activities {
-            write_activity(out, activity, false);
+        if detail == DetailLevel::Full {
+            for activity in &issue.activities {
+                write_activity(out, activity, false);
+            }
         }
         out.push('\n');
     }
 }
 
-fn write_other_activity(out: &mut String, report: &Report) {
+fn write_other_activity(out: &mut String, report: &Report, detail: DetailLevel) {
     if report.other_activity.is_empty() {
         return;
     }
     writeln!(out, "\n## Other activity not linked to a pull request\n").unwrap();
+    if detail == DetailLevel::Summary {
+        writeln!(out, "{}.", activity_signal_count(&report.other_activity)).unwrap();
+        return;
+    }
     for activity in &report.other_activity {
         write_activity(out, activity, true);
     }
@@ -260,6 +284,10 @@ fn write_activity(out: &mut String, activity: &Activity, show_repository: bool) 
 }
 
 pub fn text(report: &Report, colors: bool) -> String {
+    text_with_detail(report, colors, DetailLevel::Full)
+}
+
+pub fn text_with_detail(report: &Report, colors: bool, detail: DetailLevel) -> String {
     let style = Ansi { enabled: colors };
     let mut out = String::new();
     let issue_count = related_issue_count(report) + report.issues.len();
@@ -297,12 +325,14 @@ pub fn text(report: &Report, colors: bool) -> String {
             "YOUR PULL REQUESTS MOVED FORWARD",
             &authored,
             &style,
+            detail,
         );
         write_text_pull_request_group(
             &mut out,
             "PULL REQUESTS YOU REVIEWED OR CONTRIBUTED TO",
             &contributed,
             &style,
+            detail,
         );
     }
 
@@ -316,9 +346,11 @@ pub fn text(report: &Report, colors: bool) -> String {
                 commit_count(branch.total)
             )
             .unwrap();
-            writeln!(out, "{}", style.dim(&branch.html_url)).unwrap();
-            for activity in &branch.activities {
-                write_text_branch_activity(&mut out, activity, &style, 2);
+            if detail == DetailLevel::Full {
+                writeln!(out, "{}", style.dim(&branch.html_url)).unwrap();
+                for activity in &branch.activities {
+                    write_text_branch_activity(&mut out, activity, &style, 2);
+                }
             }
         }
     }
@@ -340,9 +372,11 @@ pub fn text(report: &Report, colors: bool) -> String {
                 style.status(&issue.state)
             )
             .unwrap();
-            writeln!(out, "{}", style.dim(&issue.html_url)).unwrap();
-            for activity in &issue.activities {
-                write_text_activity(&mut out, activity, false, &style, 2);
+            if detail == DetailLevel::Full {
+                writeln!(out, "{}", style.dim(&issue.html_url)).unwrap();
+                for activity in &issue.activities {
+                    write_text_activity(&mut out, activity, false, &style, 2);
+                }
             }
         }
     }
@@ -354,8 +388,12 @@ pub fn text(report: &Report, colors: bool) -> String {
             style.section("OTHER ACTIVITY NOT LINKED TO A PULL REQUEST")
         )
         .unwrap();
-        for activity in &report.other_activity {
-            write_text_activity(&mut out, activity, true, &style, 0);
+        if detail == DetailLevel::Summary {
+            writeln!(out, "{}", activity_signal_count(&report.other_activity)).unwrap();
+        } else {
+            for activity in &report.other_activity {
+                write_text_activity(&mut out, activity, true, &style, 0);
+            }
         }
     }
 
@@ -375,6 +413,7 @@ fn write_text_pull_request_group(
     heading: &str,
     pull_requests: &[&PullRequestWork],
     style: &Ansi,
+    detail: DetailLevel,
 ) {
     if pull_requests.is_empty() {
         return;
@@ -391,6 +430,10 @@ fn write_text_pull_request_group(
         )
         .unwrap();
         writeln!(out, "   {}", style.dim(&count_summary(pull))).unwrap();
+    }
+
+    if detail == DetailLevel::Summary {
+        return;
     }
 
     for (index, pull) in pull_requests.iter().enumerate() {
@@ -566,6 +609,10 @@ impl Ansi {
 }
 
 pub fn html(report: &Report) -> String {
+    html_with_detail(report, DetailLevel::Full)
+}
+
+pub fn html_with_detail(report: &Report, detail: DetailLevel) -> String {
     let mut out = String::new();
     let issue_count = related_issue_count(report) + report.issues.len();
     let subject = report_subject(report);
@@ -596,10 +643,10 @@ pub fn html(report: &Report) -> String {
     {
         out.push_str("<p class=\"empty\">No GitHub activity found in this timeframe.</p>\n");
     } else {
-        write_html_pull_requests(&mut out, report);
-        write_html_branches(&mut out, report);
-        write_html_issues(&mut out, report);
-        write_html_other(&mut out, report);
+        write_html_pull_requests(&mut out, report, detail);
+        write_html_branches(&mut out, report, detail);
+        write_html_issues(&mut out, report, detail);
+        write_html_other(&mut out, report, detail);
     }
     if report.may_be_truncated {
         out.push_str("<aside class=\"warning\">GitHub's Events API page limit was reached; this report may be incomplete.</aside>\n");
@@ -608,7 +655,7 @@ pub fn html(report: &Report) -> String {
     out
 }
 
-fn write_html_branches(out: &mut String, report: &Report) {
+fn write_html_branches(out: &mut String, report: &Report, detail: DetailLevel) {
     if report.branches.is_empty() {
         return;
     }
@@ -616,31 +663,36 @@ fn write_html_branches(out: &mut String, report: &Report) {
     for branch in &report.branches {
         writeln!(
             out,
-            "<article class=\"branch\"><h3><a href=\"{}\"><code>{}:{}</code></a></h3><p class=\"meta\">{}</p><ul class=\"activity\">",
+            "<article class=\"branch\"><h3><a href=\"{}\"><code>{}:{}</code></a></h3><p class=\"meta\">{}</p>",
             escape_html(&branch.html_url),
             escape_html(&branch.repository),
             escape_html(&branch.branch),
             commit_count(branch.total)
         )
         .unwrap();
-        for activity in &branch.activities {
-            write_html_branch_activity(out, activity);
+        if detail == DetailLevel::Full {
+            out.push_str("<ul class=\"activity\">");
+            for activity in &branch.activities {
+                write_html_branch_activity(out, activity);
+            }
+            out.push_str("</ul>");
         }
-        out.push_str("</ul></article>\n");
+        out.push_str("</article>\n");
     }
     out.push_str("</section>\n");
 }
 
-fn write_html_pull_requests(out: &mut String, report: &Report) {
+fn write_html_pull_requests(out: &mut String, report: &Report, detail: DetailLevel) {
     if report.pull_requests.is_empty() {
         return;
     }
     let (authored, contributed) = grouped_pull_requests(report);
-    write_html_pull_request_group(out, "Your pull requests moved forward", &authored);
+    write_html_pull_request_group(out, "Your pull requests moved forward", &authored, detail);
     write_html_pull_request_group(
         out,
         "Pull requests you reviewed or contributed to",
         &contributed,
+        detail,
     );
 }
 
@@ -648,6 +700,7 @@ fn write_html_pull_request_group(
     out: &mut String,
     heading: &str,
     pull_requests: &[&PullRequestWork],
+    detail: DetailLevel,
 ) {
     if pull_requests.is_empty() {
         return;
@@ -673,6 +726,10 @@ fn write_html_pull_request_group(
         .unwrap();
     }
     out.push_str("</ol></section>\n");
+
+    if detail == DetailLevel::Summary {
+        return;
+    }
 
     for (index, pull) in pull_requests.iter().enumerate() {
         writeln!(
@@ -768,7 +825,7 @@ fn write_html_pull_request_group(
     }
 }
 
-fn write_html_issues(out: &mut String, report: &Report) {
+fn write_html_issues(out: &mut String, report: &Report, detail: DetailLevel) {
     if report.issues.is_empty() {
         return;
     }
@@ -776,7 +833,7 @@ fn write_html_issues(out: &mut String, report: &Report) {
     for issue in &report.issues {
         writeln!(
             out,
-            "<article class=\"issue\"><h3><a href=\"{}\"><code>{}#{}</code> — {}</a> <span class=\"status {}\">{}</span></h3><ul class=\"activity\">",
+            "<article class=\"issue\"><h3><a href=\"{}\"><code>{}#{}</code> — {}</a> <span class=\"status {}\">{}</span></h3>",
             escape_html(&issue.html_url),
             escape_html(&issue.repository),
             issue.number,
@@ -785,21 +842,33 @@ fn write_html_issues(out: &mut String, report: &Report) {
             escape_html(&capitalize(&issue.state))
         )
         .unwrap();
-        for activity in &issue.activities {
-            write_html_activity(out, activity, false);
+        if detail == DetailLevel::Full {
+            out.push_str("<ul class=\"activity\">");
+            for activity in &issue.activities {
+                write_html_activity(out, activity, false);
+            }
+            out.push_str("</ul>");
         }
-        out.push_str("</ul></article>\n");
+        out.push_str("</article>\n");
     }
     out.push_str("</section>\n");
 }
 
-fn write_html_other(out: &mut String, report: &Report) {
+fn write_html_other(out: &mut String, report: &Report, detail: DetailLevel) {
     if report.other_activity.is_empty() {
         return;
     }
-    out.push_str(
-        "<section><h2>Other activity not linked to a pull request</h2><ul class=\"activity\">\n",
-    );
+    out.push_str("<section><h2>Other activity not linked to a pull request</h2>");
+    if detail == DetailLevel::Summary {
+        writeln!(
+            out,
+            "<p>{}</p></section>",
+            escape_html(&activity_signal_count(&report.other_activity))
+        )
+        .unwrap();
+        return;
+    }
+    out.push_str("<ul class=\"activity\">\n");
     for activity in &report.other_activity {
         write_html_activity(out, activity, true);
     }
@@ -911,6 +980,18 @@ fn branch_count(count: usize) -> String {
 
 fn commit_count(count: usize) -> String {
     format!("{count} {}", count_label(Category::Commits, count))
+}
+
+fn activity_signal_count(activities: &[Activity]) -> String {
+    let count = activities
+        .iter()
+        .map(|activity| activity.count)
+        .sum::<usize>();
+    if count == 1 {
+        "1 activity signal".to_owned()
+    } else {
+        format!("{count} activity signals")
+    }
 }
 
 fn count_summary(pull: &PullRequestWork) -> String {
@@ -1027,6 +1108,11 @@ mod tests {
         let json = serde_json::to_string(&report).unwrap();
         assert!(json.contains("\"branches\":[{"));
         assert!(json.contains("\"branch\":\"feature/header\""));
+
+        let summary = text_with_detail(&report, false, DetailLevel::Summary);
+        assert!(summary.contains("acme/web:feature/header — 1 commit"));
+        assert!(!summary.contains("Fix header"));
+        assert!(!summary.contains("https://github.com/acme/web/tree/feature/header"));
     }
 
     #[test]
@@ -1132,5 +1218,17 @@ mod tests {
         let html = html(&report);
         assert!(html.contains("Your pull requests moved forward"));
         assert!(html.contains("Pull requests you reviewed or contributed to"));
+
+        let summary = text_with_detail(&report, false, DetailLevel::Summary);
+        assert_eq!(summary.matches("My merged work").count(), 1);
+        assert_eq!(summary.matches("Someone else's work").count(), 1);
+        assert!(!summary.contains("Progress:"));
+        assert!(!summary.contains("Reviews (1)"));
+
+        let markdown_summary = markdown_with_detail(&report, DetailLevel::Summary);
+        assert!(!markdown_summary.contains("### 1."));
+
+        let html_summary = html_with_detail(&report, DetailLevel::Summary);
+        assert!(!html_summary.contains("<article class=\"pull-request\">"));
     }
 }

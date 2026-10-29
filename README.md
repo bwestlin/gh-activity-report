@@ -65,6 +65,9 @@ gh-activity-report this-week
 # Only include activity in repositories owned by an organization.
 gh-activity-report yesterday --org acme
 
+# Show only the ranked workstream overview.
+gh-activity-report yesterday --detail summary
+
 # Use an inclusive custom date range.
 gh-activity-report --since 2026-10-01 --until 2026-10-15
 ```
@@ -166,6 +169,23 @@ gh-activity-report last-week --format text
 ```
 
 Set `NO_COLOR=1` or `TERM=dumb` to disable console colors.
+
+## Detail levels
+
+Human-readable formats use the full detail level by default. Select the summary
+level for a shorter standup overview:
+
+```sh
+gh-activity-report yesterday --detail summary
+gh-activity-report this-week --org acme --detail summary
+```
+
+| Level | Included output |
+| --- | --- |
+| `summary` | Ranked PRs, branches, issues, statuses, and activity counts |
+| `full` | Summary plus expanded events, links, comments, and timestamps |
+
+JSON output always remains complete so scripts do not silently lose fields.
 
 ## How it works
 

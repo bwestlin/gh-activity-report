@@ -32,6 +32,10 @@ struct Args {
     #[arg(long, short, value_enum)]
     format: Option<Format>,
 
+    /// Detail level for human-readable output. JSON always remains complete.
+    #[arg(long, value_enum, default_value = "full")]
+    detail: Detail,
+
     /// Only include activity in repositories owned by this organization.
     #[arg(long = "org", visible_alias = "organization", value_name = "ORG", value_parser = parse_organization)]
     organization: Option<String>,
@@ -52,6 +56,21 @@ enum Format {
     Markdown,
     Json,
     Html,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum Detail {
+    Summary,
+    Full,
+}
+
+impl From<Detail> for output::DetailLevel {
+    fn from(detail: Detail) -> Self {
+        match detail {
+            Detail::Summary => Self::Summary,
+            Detail::Full => Self::Full,
+        }
+    }
 }
 
 impl Format {
@@ -113,13 +132,17 @@ async fn run(args: Args) -> Result<()> {
         result.events,
         result.may_be_truncated,
     );
+    let detail = args.detail.into();
 
     match format {
-        Format::Console => print!("{}", output::text(&report, ansi_colors_available())),
-        Format::Text => print!("{}", output::text(&report, false)),
-        Format::Markdown => print!("{}", output::markdown(&report)),
+        Format::Console => print!(
+            "{}",
+            output::text_with_detail(&report, ansi_colors_available(), detail)
+        ),
+        Format::Text => print!("{}", output::text_with_detail(&report, false, detail)),
+        Format::Markdown => print!("{}", output::markdown_with_detail(&report, detail)),
         Format::Json => println!("{}", serde_json::to_string_pretty(&report)?),
-        Format::Html => print!("{}", output::html(&report)),
+        Format::Html => print!("{}", output::html_with_detail(&report, detail)),
     }
     Ok(())
 }
