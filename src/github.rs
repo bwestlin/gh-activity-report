@@ -11,7 +11,8 @@ use tokio::task::JoinSet;
 use crate::timeframe::Timeframe;
 
 const PER_PAGE: usize = 100;
-const MAX_PAGES: usize = 10;
+// GitHub limits event timelines to 300 entries and rejects later pages.
+const MAX_PAGES: usize = 3;
 
 #[derive(Clone)]
 pub struct GitHubClient {
@@ -174,7 +175,6 @@ impl GitHubClient {
     pub async fn events(&self, user: &str, timeframe: &Timeframe) -> Result<EventsResult> {
         let encoded_user = urlencoding::encode(user);
         let mut events = Vec::new();
-        let mut reached_start = false;
         let mut exhausted = false;
 
         for page in 1..=MAX_PAGES {
@@ -188,33 +188,11 @@ impl GitHubClient {
                 break;
             }
 
-            for event in page_events
-                .iter()
-                .filter(|event| event.actor.login.eq_ignore_ascii_case(user))
-            {
-                if event.created_at < timeframe.start {
-                    reached_start = true;
-                    break;
-                }
-                if timeframe.contains(event.created_at) {
-                    events.push(GitHubEvent {
-                        id: event.id.clone(),
-                        kind: event.kind.clone(),
-                        actor: Actor {
-                            login: event.actor.login.clone(),
-                        },
-                        repo: Repository {
-                            name: event.repo.name.clone(),
-                        },
-                        payload: event.payload.clone(),
-                        public: event.public,
-                        created_at: event.created_at,
-                    });
-                }
-            }
+            let page_len = page_events.len();
+            events.extend(matching_events(page_events, user, timeframe));
 
-            if reached_start || page_events.len() < PER_PAGE {
-                exhausted = page_events.len() < PER_PAGE;
+            if page_len < PER_PAGE {
+                exhausted = true;
                 break;
             }
         }
@@ -224,7 +202,7 @@ impl GitHubClient {
 
         Ok(EventsResult {
             events,
-            may_be_truncated: !reached_start && !exhausted,
+            may_be_truncated: !exhausted,
         })
     }
 
@@ -627,6 +605,21 @@ impl GitHubClient {
     }
 }
 
+fn matching_events(
+    page_events: Vec<GitHubEvent>,
+    user: &str,
+    timeframe: &Timeframe,
+) -> Vec<GitHubEvent> {
+    // GitHub's events feed is not guaranteed to be strictly chronological.
+    // Filter the complete page instead of stopping at the first old event.
+    page_events
+        .into_iter()
+        .filter(|event| {
+            event.actor.login.eq_ignore_ascii_case(user) && timeframe.contains(event.created_at)
+        })
+        .collect()
+}
+
 fn graphql_url(api_url: &str) -> String {
     if let Some(root) = api_url.strip_suffix("/api/v3") {
         format!("{root}/api/graphql")
@@ -779,7 +772,55 @@ fn pull_number_from_url(url: &str) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{pull_number_from_commit_message, pull_number_from_url, related_issue_references};
+    use super::{
+        Actor, GitHubEvent, Repository, matching_events, pull_number_from_commit_message,
+        pull_number_from_url, related_issue_references,
+    };
+    use crate::timeframe::Timeframe;
+    use chrono::{NaiveDate, TimeZone, Utc};
+    use serde_json::Value;
+
+    fn event(id: &str, created_at: chrono::DateTime<Utc>) -> GitHubEvent {
+        GitHubEvent {
+            id: id.to_owned(),
+            kind: "PushEvent".to_owned(),
+            actor: Actor {
+                login: "octocat".to_owned(),
+            },
+            repo: Repository {
+                name: "acme/api".to_owned(),
+            },
+            payload: Value::Null,
+            public: false,
+            created_at,
+        }
+    }
+
+    #[test]
+    fn keeps_in_range_events_after_an_older_event() {
+        let timeframe = Timeframe {
+            label: "yesterday".to_owned(),
+            start: Utc.with_ymd_and_hms(2026, 10, 27, 23, 0, 0).unwrap(),
+            end: Utc.with_ymd_and_hms(2026, 10, 28, 23, 0, 0).unwrap(),
+            start_date: NaiveDate::from_ymd_opt(2026, 10, 28).unwrap(),
+            end_date: NaiveDate::from_ymd_opt(2026, 10, 28).unwrap(),
+        };
+        let events = vec![
+            event(
+                "older",
+                Utc.with_ymd_and_hms(2026, 10, 27, 17, 52, 1).unwrap(),
+            ),
+            event(
+                "in-range",
+                Utc.with_ymd_and_hms(2026, 10, 28, 22, 20, 53).unwrap(),
+            ),
+        ];
+
+        let matching = matching_events(events, "octocat", &timeframe);
+
+        assert_eq!(matching.len(), 1);
+        assert_eq!(matching[0].id, "in-range");
+    }
 
     #[test]
     fn reads_pull_number_from_review_comment_url() {
