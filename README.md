@@ -68,6 +68,9 @@ gh-activity-report yesterday --org acme
 # Show only the ranked workstream overview.
 gh-activity-report yesterday --detail summary
 
+# Open a temporary HTML report in the default browser.
+gh-activity-report yesterday --open
+
 # Use an inclusive custom date range.
 gh-activity-report --since 2026-10-01 --until 2026-10-15
 ```
@@ -168,6 +171,12 @@ gh-activity-report last-week --format html > report.html
 gh-activity-report last-week --format text
 gh-activity-report yesterday --links disabled
 ```
+
+Use `--open` to render a uniquely named HTML report in the system temporary
+directory and launch it with the default desktop application. The file is kept
+long enough for the browser to load it and is eventually cleaned up with other
+system temporary files. `--open` implies HTML output and cannot be combined
+with `--format`.
 
 Interactive console output uses OSC 8 hyperlinks for pull requests, issues,
 branches, commits, reviews, and comments. Links are enabled by default; use

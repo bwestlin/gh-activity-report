@@ -1,4 +1,6 @@
 use std::io::IsTerminal;
+use std::io::Write;
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
@@ -31,6 +33,10 @@ struct Args {
     /// Output format. Defaults to console on a terminal and plain text when piped.
     #[arg(long, short, value_enum)]
     format: Option<Format>,
+
+    /// Open an HTML report in the default browser instead of writing to stdout.
+    #[arg(long, conflicts_with = "format")]
+    open: bool,
 
     /// Detail level for human-readable output. JSON always remains complete.
     #[arg(long, value_enum, default_value = "full")]
@@ -144,6 +150,14 @@ async fn run(args: Args) -> Result<()> {
     );
     let detail = args.detail.into();
 
+    if args.open {
+        let path = save_html_preview(&output::html_with_detail(&report, detail))?;
+        open::that_detached(&path)
+            .with_context(|| format!("could not open HTML report at {}", path.display()))?;
+        println!("Opened HTML report at {}", path.display());
+        return Ok(());
+    }
+
     match format {
         Format::Console => print!(
             "{}",
@@ -162,6 +176,22 @@ async fn run(args: Args) -> Result<()> {
     Ok(())
 }
 
+fn save_html_preview(html: &str) -> Result<PathBuf> {
+    let mut file = tempfile::Builder::new()
+        .prefix("gh-activity-report-")
+        .suffix(".html")
+        .tempfile()
+        .context("could not create temporary HTML report")?;
+    file.write_all(html.as_bytes())
+        .context("could not write temporary HTML report")?;
+    file.flush()
+        .context("could not flush temporary HTML report")?;
+    let (_, path) = file
+        .keep()
+        .context("could not retain temporary HTML report for the browser")?;
+    Ok(path)
+}
+
 fn ansi_colors_available() -> bool {
     terminal_escape_sequences_available() && std::env::var_os("NO_COLOR").is_none()
 }
@@ -174,7 +204,7 @@ fn terminal_escape_sequences_available() -> bool {
 mod tests {
     use clap::Parser;
 
-    use super::{Args, Format, Links, parse_organization};
+    use super::{Args, Format, Links, parse_organization, save_html_preview};
 
     #[test]
     fn automatic_format_uses_console_for_a_terminal() {
@@ -210,5 +240,38 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(disabled.links, Links::Disabled);
+    }
+
+    #[test]
+    fn open_is_an_html_preview_shortcut_and_conflicts_with_format() {
+        let args =
+            Args::try_parse_from(["gh-activity-report", "--token", "token", "--open"]).unwrap();
+        assert!(args.open);
+
+        assert!(
+            Args::try_parse_from([
+                "gh-activity-report",
+                "--token",
+                "token",
+                "--open",
+                "--format",
+                "html",
+            ])
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn html_preview_is_persisted_with_an_html_extension() {
+        let path = save_html_preview("<!doctype html><title>Preview</title>").unwrap();
+        assert_eq!(
+            path.extension().and_then(|value| value.to_str()),
+            Some("html")
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "<!doctype html><title>Preview</title>"
+        );
+        std::fs::remove_file(path).unwrap();
     }
 }
