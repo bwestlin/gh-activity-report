@@ -173,9 +173,12 @@ impl GitHubClient {
     }
 
     pub async fn events(&self, user: &str, timeframe: &Timeframe) -> Result<EventsResult> {
+        // TODO: Supplement the capped Events API with GraphQL ContributionsCollection
+        // and PR/issue timelines so longer or unusually busy periods remain complete.
         let encoded_user = urlencoding::encode(user);
         let mut events = Vec::new();
         let mut exhausted = false;
+        let mut oldest_event_at: Option<DateTime<Utc>> = None;
 
         for page in 1..=MAX_PAGES {
             let url = format!(
@@ -189,6 +192,14 @@ impl GitHubClient {
             }
 
             let page_len = page_events.len();
+            for event in page_events
+                .iter()
+                .filter(|event| event.actor.login.eq_ignore_ascii_case(user))
+            {
+                oldest_event_at = Some(
+                    oldest_event_at.map_or(event.created_at, |oldest| oldest.min(event.created_at)),
+                );
+            }
             events.extend(matching_events(page_events, user, timeframe));
 
             if page_len < PER_PAGE {
@@ -202,7 +213,7 @@ impl GitHubClient {
 
         Ok(EventsResult {
             events,
-            may_be_truncated: !exhausted,
+            may_be_truncated: timeline_may_be_truncated(exhausted, oldest_event_at, timeframe),
         })
     }
 
@@ -620,6 +631,14 @@ fn matching_events(
         .collect()
 }
 
+fn timeline_may_be_truncated(
+    exhausted: bool,
+    oldest_event_at: Option<DateTime<Utc>>,
+    timeframe: &Timeframe,
+) -> bool {
+    !exhausted && oldest_event_at.is_none_or(|oldest| oldest >= timeframe.start)
+}
+
 fn graphql_url(api_url: &str) -> String {
     if let Some(root) = api_url.strip_suffix("/api/v3") {
         format!("{root}/api/graphql")
@@ -774,7 +793,7 @@ fn pull_number_from_url(url: &str) -> Option<u64> {
 mod tests {
     use super::{
         Actor, GitHubEvent, Repository, matching_events, pull_number_from_commit_message,
-        pull_number_from_url, related_issue_references,
+        pull_number_from_url, related_issue_references, timeline_may_be_truncated,
     };
     use crate::timeframe::Timeframe;
     use chrono::{NaiveDate, TimeZone, Utc};
@@ -796,15 +815,19 @@ mod tests {
         }
     }
 
-    #[test]
-    fn keeps_in_range_events_after_an_older_event() {
-        let timeframe = Timeframe {
+    fn yesterday() -> Timeframe {
+        Timeframe {
             label: "yesterday".to_owned(),
             start: Utc.with_ymd_and_hms(2026, 10, 27, 23, 0, 0).unwrap(),
             end: Utc.with_ymd_and_hms(2026, 10, 28, 23, 0, 0).unwrap(),
             start_date: NaiveDate::from_ymd_opt(2026, 10, 28).unwrap(),
             end_date: NaiveDate::from_ymd_opt(2026, 10, 28).unwrap(),
-        };
+        }
+    }
+
+    #[test]
+    fn keeps_in_range_events_after_an_older_event() {
+        let timeframe = yesterday();
         let events = vec![
             event(
                 "older",
@@ -820,6 +843,22 @@ mod tests {
 
         assert_eq!(matching.len(), 1);
         assert_eq!(matching[0].id, "in-range");
+    }
+
+    #[test]
+    fn full_timeline_is_complete_when_it_reaches_before_the_timeframe() {
+        let timeframe = yesterday();
+        let oldest = Utc.with_ymd_and_hms(2026, 10, 20, 11, 35, 12).unwrap();
+
+        assert!(!timeline_may_be_truncated(false, Some(oldest), &timeframe));
+    }
+
+    #[test]
+    fn full_timeline_may_be_truncated_when_it_starts_inside_the_timeframe() {
+        let timeframe = yesterday();
+        let oldest = Utc.with_ymd_and_hms(2026, 10, 28, 12, 0, 0).unwrap();
+
+        assert!(timeline_may_be_truncated(false, Some(oldest), &timeframe));
     }
 
     #[test]
