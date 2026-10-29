@@ -152,7 +152,7 @@ Calendar boundaries and displayed times use the machine's local timezone.
 
 | Format | Behavior |
 | --- | --- |
-| `console` | Terminal layout with ANSI styling when supported |
+| `console` | ANSI-styled terminal layout with clickable links when supported |
 | `text` | Plain text that never contains ANSI sequences |
 | `markdown` | Linked Markdown suitable for notes or a standup document |
 | `json` | Structured machine-readable output |
@@ -166,9 +166,16 @@ gh-activity-report last-week --format markdown
 gh-activity-report last-week --format json
 gh-activity-report last-week --format html > report.html
 gh-activity-report last-week --format text
+gh-activity-report yesterday --links disabled
 ```
 
-Set `NO_COLOR=1` or `TERM=dumb` to disable console colors.
+Interactive console output uses OSC 8 hyperlinks for pull requests, issues,
+branches, commits, reviews, and comments. Links are enabled by default; use
+`--links disabled` when the terminal does not support them. Full-detail output
+prints raw URLs as a fallback when links are disabled or unavailable.
+
+Set `NO_COLOR=1` to disable colors without disabling links. `TERM=dumb`, plain
+text output, and pipes or redirects do not receive terminal escape sequences.
 
 ## Detail levels
 

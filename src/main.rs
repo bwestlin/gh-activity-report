@@ -36,6 +36,10 @@ struct Args {
     #[arg(long, value_enum, default_value = "full")]
     detail: Detail,
 
+    /// Hyperlinks in console output.
+    #[arg(long, value_enum, default_value = "enabled")]
+    links: Links,
+
     /// Only include activity in repositories owned by this organization.
     #[arg(long = "org", visible_alias = "organization", value_name = "ORG", value_parser = parse_organization)]
     organization: Option<String>,
@@ -62,6 +66,12 @@ enum Format {
 enum Detail {
     Summary,
     Full,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum Links {
+    Enabled,
+    Disabled,
 }
 
 impl From<Detail> for output::DetailLevel {
@@ -137,7 +147,12 @@ async fn run(args: Args) -> Result<()> {
     match format {
         Format::Console => print!(
             "{}",
-            output::text_with_detail(&report, ansi_colors_available(), detail)
+            output::console_with_detail(
+                &report,
+                ansi_colors_available(),
+                args.links == Links::Enabled && terminal_escape_sequences_available(),
+                detail,
+            )
         ),
         Format::Text => print!("{}", output::text_with_detail(&report, false, detail)),
         Format::Markdown => print!("{}", output::markdown_with_detail(&report, detail)),
@@ -148,14 +163,18 @@ async fn run(args: Args) -> Result<()> {
 }
 
 fn ansi_colors_available() -> bool {
-    std::io::stdout().is_terminal()
-        && std::env::var_os("NO_COLOR").is_none()
-        && std::env::var("TERM").map_or(true, |term| term != "dumb")
+    terminal_escape_sequences_available() && std::env::var_os("NO_COLOR").is_none()
+}
+
+fn terminal_escape_sequences_available() -> bool {
+    std::io::stdout().is_terminal() && std::env::var("TERM").map_or(true, |term| term != "dumb")
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Format, parse_organization};
+    use clap::Parser;
+
+    use super::{Args, Format, Links, parse_organization};
 
     #[test]
     fn automatic_format_uses_console_for_a_terminal() {
@@ -175,5 +194,21 @@ mod tests {
     #[test]
     fn organization_rejects_repository_paths() {
         assert!(parse_organization("acme/api").is_err());
+    }
+
+    #[test]
+    fn links_default_to_enabled_and_can_be_disabled() {
+        let defaults = Args::try_parse_from(["gh-activity-report", "--token", "token"]).unwrap();
+        assert_eq!(defaults.links, Links::Enabled);
+
+        let disabled = Args::try_parse_from([
+            "gh-activity-report",
+            "--token",
+            "token",
+            "--links",
+            "disabled",
+        ])
+        .unwrap();
+        assert_eq!(disabled.links, Links::Disabled);
     }
 }

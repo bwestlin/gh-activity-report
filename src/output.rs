@@ -288,7 +288,16 @@ pub fn text(report: &Report, colors: bool) -> String {
 }
 
 pub fn text_with_detail(report: &Report, colors: bool, detail: DetailLevel) -> String {
-    let style = Ansi { enabled: colors };
+    console_with_detail(report, colors, colors, detail)
+}
+
+pub fn console_with_detail(
+    report: &Report,
+    colors: bool,
+    links: bool,
+    detail: DetailLevel,
+) -> String {
+    let style = Ansi { colors, links };
     let mut out = String::new();
     let issue_count = related_issue_count(report) + report.issues.len();
     writeln!(
@@ -342,12 +351,15 @@ pub fn text_with_detail(report: &Report, colors: bool, detail: DetailLevel) -> S
             writeln!(
                 out,
                 "\n{} — {}",
-                style.link(&format!("{}:{}", branch.repository, branch.branch)),
+                style.link(
+                    &format!("{}:{}", branch.repository, branch.branch),
+                    &branch.html_url,
+                ),
                 commit_count(branch.total)
             )
             .unwrap();
             if detail == DetailLevel::Full {
-                writeln!(out, "{}", style.dim(&branch.html_url)).unwrap();
+                write_text_fallback_url(&mut out, &branch.html_url, &style, 0);
                 for activity in &branch.activities {
                     write_text_branch_activity(&mut out, activity, &style, 2);
                 }
@@ -365,15 +377,17 @@ pub fn text_with_detail(report: &Report, colors: bool, detail: DetailLevel) -> S
         for issue in &report.issues {
             writeln!(
                 out,
-                "\n{}#{} — {} — {}",
-                issue.repository,
-                issue.number,
+                "\n{} — {} — {}",
+                style.link(
+                    &format!("{}#{}", issue.repository, issue.number),
+                    &issue.html_url,
+                ),
                 issue.title,
                 style.status(&issue.state)
             )
             .unwrap();
             if detail == DetailLevel::Full {
-                writeln!(out, "{}", style.dim(&issue.html_url)).unwrap();
+                write_text_fallback_url(&mut out, &issue.html_url, &style, 0);
                 for activity in &issue.activities {
                     write_text_activity(&mut out, activity, false, &style, 2);
                 }
@@ -424,7 +438,10 @@ fn write_text_pull_request_group(
             out,
             "{}. {} {} — {}",
             index + 1,
-            style.link(&format!("{}#{}", pull.repository, pull.number)),
+            style.link(
+                &format!("{}#{}", pull.repository, pull.number),
+                &pull.html_url,
+            ),
             pull.title,
             style.status(&pull.status)
         )
@@ -446,7 +463,10 @@ fn write_text_pull_request_group(
         write!(
             out,
             "{} · {} · {}",
-            style.link(&format!("{}#{}", pull.repository, pull.number)),
+            style.link(
+                &format!("{}#{}", pull.repository, pull.number),
+                &pull.html_url,
+            ),
             style.status(&pull.status),
             if pull.relationship == "authored" {
                 "authored by you"
@@ -459,7 +479,7 @@ fn write_text_pull_request_group(
             write!(out, " · {head} -> {base}").unwrap();
         }
         writeln!(out, "\nProgress: {}", count_summary(pull)).unwrap();
-        writeln!(out, "{}", style.dim(&pull.html_url)).unwrap();
+        write_text_fallback_url(out, &pull.html_url, style, 0);
 
         if !pull.related_issues.is_empty() {
             writeln!(out, "\n{}", style.subheading("Related issues")).unwrap();
@@ -471,15 +491,17 @@ fn write_text_pull_request_group(
                 };
                 writeln!(
                     out,
-                    "  - {}: {}#{} — {} — {}",
+                    "  - {}: {} — {} — {}",
                     style.bold(relationship),
-                    issue.repository,
-                    issue.number,
+                    style.link(
+                        &format!("{}#{}", issue.repository, issue.number),
+                        &issue.html_url,
+                    ),
                     issue.title,
                     style.status(&issue.state)
                 )
                 .unwrap();
-                writeln!(out, "    {}", style.dim(&issue.html_url)).unwrap();
+                write_text_fallback_url(out, &issue.html_url, style, 4);
                 for activity in &issue.activities {
                     write_text_activity(out, activity, false, style, 4);
                 }
@@ -514,15 +536,19 @@ fn write_text_pull_request_group(
 
 fn write_text_branch_activity(out: &mut String, activity: &Activity, style: &Ansi, indent: usize) {
     let padding = " ".repeat(indent);
+    let summary = activity.url.as_deref().map_or_else(
+        || activity.summary.clone(),
+        |url| style.link(&activity.summary, url),
+    );
     writeln!(
         out,
         "{padding}- {} {}",
-        activity.summary,
+        summary,
         style.dim(&format!("({})", local_time(activity.occurred_at)))
     )
     .unwrap();
     if let Some(url) = &activity.url {
-        writeln!(out, "{padding}  {}", style.dim(url)).unwrap();
+        write_text_fallback_url(out, url, style, indent + 2);
     }
 }
 
@@ -545,25 +571,36 @@ fn write_text_activity(
         .filter(|detail| !detail.is_empty())
         .map(|detail| format!(" — {}", detail.replace('\n', " ")))
         .unwrap_or_default();
+    let summary = activity.url.as_deref().map_or_else(
+        || activity.summary.clone(),
+        |url| style.link(&activity.summary, url),
+    );
     writeln!(
         out,
         "{padding}- {repository}{}{detail} {}",
-        activity.summary,
+        summary,
         style.dim(&format!("({})", local_time(activity.occurred_at)))
     )
     .unwrap();
     if let Some(url) = &activity.url {
-        writeln!(out, "{padding}  {}", style.dim(url)).unwrap();
+        write_text_fallback_url(out, url, style, indent + 2);
+    }
+}
+
+fn write_text_fallback_url(out: &mut String, url: &str, style: &Ansi, indent: usize) {
+    if !style.links {
+        writeln!(out, "{}{}", " ".repeat(indent), style.dim(url)).unwrap();
     }
 }
 
 struct Ansi {
-    enabled: bool,
+    colors: bool,
+    links: bool,
 }
 
 impl Ansi {
     fn paint(&self, code: &str, value: &str) -> String {
-        if self.enabled {
+        if self.colors {
             format!("\x1b[{code}m{value}\x1b[0m")
         } else {
             value.to_owned()
@@ -586,8 +623,16 @@ impl Ansi {
         self.paint("1;34", value)
     }
 
-    fn link(&self, value: &str) -> String {
-        self.paint("4;34", value)
+    fn link(&self, value: &str, url: &str) -> String {
+        let styled = self.paint("34", value);
+        if !self.links {
+            return styled;
+        }
+        let safe_url: String = url
+            .chars()
+            .filter(|character| !character.is_control())
+            .collect();
+        format!("\x1b]8;;{safe_url}\x1b\\{styled}\x1b]8;;\x1b\\")
     }
 
     fn dim(&self, value: &str) -> String {
@@ -1097,9 +1142,13 @@ mod tests {
         assert!(markdown.contains("## Branches without pull requests"));
         assert!(markdown.contains("acme/web:feature/header"));
 
-        let text = text(&report, false);
-        assert!(text.contains("BRANCHES WITHOUT PULL REQUESTS"));
-        assert!(text.contains("acme/web:feature/header — 1 commit"));
+        let plain_text = text(&report, false);
+        assert!(plain_text.contains("BRANCHES WITHOUT PULL REQUESTS"));
+        assert!(plain_text.contains("acme/web:feature/header — 1 commit"));
+        assert!(!plain_text.contains("\x1b]8;;"));
+
+        let console = text(&report, true);
+        assert!(console.contains("\x1b]8;;https://github.com/acme/web/tree/feature/header\x1b\\"));
 
         let html = html(&report);
         assert!(html.contains("Branches without pull requests"));
@@ -1157,6 +1206,59 @@ mod tests {
         );
         assert!(!text(&report, false).contains("\x1b["));
         assert!(text(&report, true).contains("\x1b["));
+    }
+
+    #[test]
+    fn terminal_links_strip_control_characters_from_urls() {
+        let style = Ansi {
+            colors: true,
+            links: true,
+        };
+        let link = style.link("example", "https://example.com/\nunsafe\x1b");
+
+        assert!(link.contains("https://example.com/unsafe"));
+        assert!(!link.contains("\n"));
+    }
+
+    #[test]
+    fn linked_console_output_omits_raw_url_fallbacks_and_underlines() {
+        let event = GitHubEvent {
+            id: "push-1".to_owned(),
+            kind: "PushEvent".to_owned(),
+            actor: Actor {
+                login: "octocat".to_owned(),
+            },
+            repo: Repository {
+                name: "acme/web".to_owned(),
+            },
+            payload: json!({
+                "ref": "refs/heads/feature/header",
+                "commits": [{"sha": "1234567890", "message": "Fix header"}]
+            }),
+            public: true,
+            created_at: Utc.with_ymd_and_hms(2026, 10, 26, 8, 0, 0).unwrap(),
+        };
+        let report = build_report(
+            "octocat".into(),
+            "yesterday".into(),
+            "2026-10-26".into(),
+            vec![event],
+            false,
+        );
+        let url = "https://github.com/acme/web/tree/feature/header";
+
+        let linked = console_with_detail(&report, true, true, DetailLevel::Full);
+        assert_eq!(linked.matches(url).count(), 1);
+        assert!(!linked.contains("\x1b[4;34m"));
+
+        let linked_without_color = console_with_detail(&report, false, true, DetailLevel::Full);
+        assert!(linked_without_color.contains("\x1b]8;;"));
+        assert!(!linked_without_color.contains("\x1b["));
+
+        let fallback = console_with_detail(&report, true, false, DetailLevel::Full);
+        assert_eq!(fallback.matches(url).count(), 1);
+        assert!(!fallback.contains("\x1b]8;;"));
+        assert!(fallback.contains("\x1b[34macme/web:feature/header"));
     }
 
     #[test]
