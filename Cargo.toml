@@ -1,6 +1,6 @@
 [package]
 name = "gh-activity-report"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Generate pull-request-focused standup reports from recent GitHub activity"
 license = "MIT"
