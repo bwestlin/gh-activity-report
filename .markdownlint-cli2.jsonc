@@ -1,0 +1,4 @@
+{
+  // Generated release notes repeat headings across versions.
+  "ignores": ["CHANGELOG.md", "target/**"]
+}

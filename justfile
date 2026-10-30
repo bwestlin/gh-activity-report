@@ -27,9 +27,9 @@ test:
 package:
     cargo package --locked
 
-# Lint all Markdown files.
+# Lint Markdown using the shared exclusions for generated files.
 markdown-check:
-    npx markdownlint-cli2 '**/*.md' '#target/**'
+    npx markdownlint-cli2 '**/*.md'
 
 # Preview changes since the latest release tag.
 changelog-preview:
